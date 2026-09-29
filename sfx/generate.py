@@ -45,7 +45,7 @@ def build_request(manifest, sound, influence):
     if sound.get("loop"):
         body["loop"] = True
     if "duration" in sound:
-        body["duration_seconds"] = sound["duration"]
+        body["duration_seconds"] = max(0.5, sound["duration"])  # the API's minimum
     return body
 
 

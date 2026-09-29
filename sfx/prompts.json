@@ -1,5 +1,5 @@
 {
-  "suffix": ", fantasy video game sound effect, high quality, clean, no music",
+  "suffix": ", cinematic fantasy film sound effect, high quality, clean, no music",
   "defaults": {
     "model_id": "eleven_text_to_sound_v2",
     "output_format": "mp3_44100_128",
@@ -481,114 +481,114 @@
       "sounds": [
         {
           "id": "cast",
-          "prompt": "Quick wand spell cast: punchy magical zap with a deep thump and a short sparkle tail",
+          "prompt": "Wand spell cast: sharp magical crack, a burst of fizzing sparks and a rush of air with a deep punch, like a wizard duel in a film",
           "duration": 0.6,
           "variants": 4
         },
         {
           "id": "impact",
-          "prompt": "Magic bolt impact: deep punchy hit with a crackling magical burst",
+          "prompt": "Magic spell hitting a target: explosive crack, a shower of sparks and a deep punchy thud",
           "duration": 0.9,
           "variants": 4
         },
         {
           "id": "blast",
-          "prompt": "Magic shockwave blast: huge bass boom with a rushing ring of air and debris",
+          "prompt": "Magic shockwave blast: huge deep boom, a rushing ring of air and stone debris falling, echoing in a castle hall",
           "duration": 2.0,
           "variants": 3
         },
         {
           "id": "blast_whoosh",
-          "prompt": "Powerful air pressure whoosh pushing outward from a magic blast",
+          "prompt": "Powerful air pressure wave whooshing outward from a magic explosion, deep and fast",
           "duration": 1.0,
           "variants": 2
         },
         {
           "id": "charge_loop",
-          "prompt": "Charging a spell: steady deep humming energy with swirling sparkles",
+          "prompt": "Charging a spell: deep humming magical energy with a singing bowl tone, fizzing sparks and swirling air",
           "loop": true
         },
         {
           "id": "charge_full",
-          "prompt": "Spell fully charged: bright magical ping over a deep swelling hum",
+          "prompt": "Spell fully charged: bright shimmering bell tree glissando over a deep swelling hum",
           "duration": 0.8
         },
         {
           "id": "charge_release",
-          "prompt": "Charged spell release: heavy magical launch with a deep boom and a fast whoosh",
+          "prompt": "Releasing a fully charged spell: loud magical crack, deep boom and a fast whoosh with a spray of sparks",
           "duration": 1.2,
           "variants": 2
         },
         {
           "id": "shield_up",
-          "prompt": "Magic shield raised: deep humming energy dome forming with a warm shimmering chime",
+          "prompt": "Protective magic shield raised: rising whoosh into a deep singing bowl hum and shimmering bells, glowing",
           "duration": 1.5,
           "variants": 2
         },
         {
           "id": "shield_block",
-          "prompt": "Spell hitting a magic shield: deep resonant bass thud with an energy ripple",
+          "prompt": "Spell deflected by a magic shield: deep resonant bell-like bass impact with a rippling energy wobble",
           "duration": 0.8,
           "variants": 3
         },
         {
           "id": "dash",
-          "prompt": "Magical dash: fast deep whoosh with rushing air and a soft sparkle",
+          "prompt": "Magical dash: fast twisting whoosh of air with a soft crack, like a wizard vanishing",
           "duration": 0.6,
           "variants": 3
         },
         {
           "id": "mythic_cast",
-          "prompt": "Mythic spell cast: epic layered magic with a choir swell, deep sub boom and shimmer",
+          "prompt": "Legendary spell cast: sharp crack and fizzing sparks, deep boom, epic choir swell and falling shimmering bells",
           "duration": 1.6,
           "variants": 2
         },
         {
           "id": "duel_draw",
-          "prompt": "Drawing a wand for a duel: cloth swish, wooden slide and a low magical hum",
+          "prompt": "Drawing a wooden wand from a robe for a duel: cloth swish, wood slide and a soft magical hum with tiny bells",
           "duration": 0.6,
           "variants": 2
         },
         {
           "id": "duel_holster",
-          "prompt": "Putting a wand away: soft cloth swish with a fading low hum",
+          "prompt": "Putting a wooden wand away into a robe: soft cloth swish and a fading magical hum",
           "duration": 0.5,
           "variants": 2
         },
         {
           "id": "knockout",
-          "prompt": "Knockout blow: cinematic finishing hit with a deep boom and a bright ringing tail",
+          "prompt": "Knockout blow in a wizard duel: cinematic impact with a deep boom, a metallic ring and a short dark choir hit",
           "duration": 1.5
         },
         {
           "id": "defeat",
-          "prompt": "Wizard defeated: dark falling whoosh, a low boom and a fading heartbeat",
+          "prompt": "Wizard defeated: dark falling whoosh, deep boom, low mournful strings and a fading heartbeat",
           "duration": 2.5
         },
         {
           "id": "respawn",
-          "prompt": "Respawn: reverse magical swell rising into a warm shimmering arrival",
+          "prompt": "Wizard respawning: reversed shimmering bells rising into a warm choir and a soft celesta chime",
           "duration": 2.0
         },
         {
           "id": "burn_tick",
-          "prompt": "Burn damage tick: short fiery flare and sizzle with a low thump",
+          "prompt": "Burning damage: short fiery flare with crackling embers",
           "duration": 0.4,
           "variants": 3
         },
         {
           "id": "frost_slow",
-          "prompt": "Frost slow: icy crackling freeze with a cold low whoomp",
+          "prompt": "Frost spell slowing a target: icy crackling freeze, glassy tinkling and a cold hiss",
           "duration": 0.8
         },
         {
           "id": "lifesteal",
-          "prompt": "Life steal: dark swirling drain pulling energy back to the caster",
+          "prompt": "Life-draining dark magic: swirling reverse whoosh pulling energy back, with a ghostly whisper",
           "duration": 0.8
         },
         {
           "id": "crystal_shatter",
-          "prompt": "Crystal shards shattering outward from a magic hit, with a deep thud",
+          "prompt": "Magic crystal shattering into shards: glassy explosion with falling tinkling fragments and a deep thud",
           "duration": 1.0
         }
       ]
@@ -599,37 +599,37 @@
       "sounds": [
         {
           "id": "aff_fire",
-          "prompt": "Fire flavour for a spell cast: roaring flame burst",
+          "prompt": "Fire magic burst: whooshing flame ignition with crackling embers",
           "duration": 0.8
         },
         {
           "id": "aff_ice",
-          "prompt": "Ice flavour for a spell cast: crystalline frost shimmer",
+          "prompt": "Ice magic burst: crystalline chimes, crackling frost and a cold shimmer",
           "duration": 0.8
         },
         {
           "id": "aff_wind",
-          "prompt": "Wind flavour for a spell cast: swirling gust",
+          "prompt": "Wind magic burst: swirling gust of air",
           "duration": 0.8
         },
         {
           "id": "aff_storm",
-          "prompt": "Storm flavour for a spell cast: crackling electric zap with a thunder thump",
+          "prompt": "Storm magic burst: electric lightning crack with a short thunder rumble",
           "duration": 0.8
         },
         {
           "id": "aff_nature",
-          "prompt": "Nature flavour for a spell cast: rustling leaves and a warm wooden resonance",
+          "prompt": "Nature magic burst: rustling leaves, creaking wood and soft celesta notes",
           "duration": 0.8
         },
         {
           "id": "aff_dark",
-          "prompt": "Dark flavour for a spell cast: deep ominous whoosh with a ghostly echo",
+          "prompt": "Dark magic burst: ominous reverse whoosh with a low whispering choir",
           "duration": 0.8
         },
         {
           "id": "aff_light",
-          "prompt": "Light flavour for a spell cast: radiant golden chime burst",
+          "prompt": "Light magic burst: radiant falling bells with a soft angelic choir",
           "duration": 0.8
         }
       ]
@@ -640,38 +640,38 @@
       "sounds": [
         {
           "id": "reroll",
-          "prompt": "Rerolling a spell book: quick magical page flick with a soft tick and shimmer",
+          "prompt": "Flicking through an old spell book: quick page riffle with a tiny magical chime",
           "duration": 0.5,
           "variants": 3
         },
         {
           "id": "reveal_common",
-          "prompt": "Common item revealed: soft warm chime",
+          "prompt": "Item revealed: two soft celesta notes with a gentle shimmer",
           "duration": 0.8
         },
         {
           "id": "reveal_rare",
-          "prompt": "Rare item revealed: bright rising chimes with a gentle low swell",
+          "prompt": "Rare item revealed: rising celesta arpeggio with sparkling bells and soft strings",
           "duration": 1.5
         },
         {
           "id": "reveal_epic",
-          "prompt": "Epic item revealed: sparkling magical arpeggio over a deep boom",
+          "prompt": "Epic item revealed: magical celesta melody in a minor key, swelling strings, a timpani hit and shimmering bells",
           "duration": 2.0
         },
         {
           "id": "reveal_legendary",
-          "prompt": "Legendary item revealed: golden brass chord, timpani hit and a shower of sparkles",
+          "prompt": "Legendary item revealed: triumphant orchestral brass chord, strings, choir, timpani and cymbal with a shower of bells",
           "duration": 2.5
         },
         {
           "id": "reveal_mythic",
-          "prompt": "Mythic item revealed: huge cinematic braam, choir swell, sub boom and dazzling shimmer",
+          "prompt": "Mythic item revealed: huge cinematic orchestral hit with deep brass, full choir, timpani, a sub boom and dazzling shimmering bells",
           "duration": 3.5
         },
         {
           "id": "code_redeem",
-          "prompt": "Code redeemed: magical coins and a triumphant little chime",
+          "prompt": "Reward redeemed: jingling gold coins and a bright magical celesta flourish",
           "duration": 1.5
         }
       ]
@@ -682,35 +682,35 @@
       "sounds": [
         {
           "id": "ui_click",
-          "prompt": "Soft interface click: short wooden tick with a warm low body",
+          "prompt": "Soft interface click: short wooden tick on old parchment",
           "duration": 0.15,
           "variants": 3
         },
         {
           "id": "ui_hover",
-          "prompt": "Very soft interface hover tick, warm and subtle",
+          "prompt": "Very soft paper touch, barely audible",
           "duration": 0.1,
           "variants": 2
         },
         {
           "id": "ui_open",
-          "prompt": "Opening a heavy spell book: leather thump, page whoosh and a faint magical shimmer",
+          "prompt": "Opening a heavy leather spell book: soft thump, pages fluttering and a faint magical shimmer",
           "duration": 0.8
         },
         {
           "id": "ui_close",
-          "prompt": "Closing a spell book: soft leather thump",
+          "prompt": "Closing a leather spell book: soft muffled thump",
           "duration": 0.5
         },
         {
           "id": "ui_tab",
-          "prompt": "Turning a parchment page",
+          "prompt": "Turning a single parchment page",
           "duration": 0.4,
           "variants": 2
         },
         {
           "id": "ui_denied",
-          "prompt": "Not allowed: soft low muted double knock",
+          "prompt": "Two soft low wooden knocks, not allowed",
           "duration": 0.4
         }
       ]
@@ -721,22 +721,22 @@
       "sounds": [
         {
           "id": "magic_door_open",
-          "prompt": "Heavy magic castle door swinging open: wooden creak, stone scrape and a soft magical hum",
+          "prompt": "Heavy wooden castle door swinging open: deep creak, stone scrape and a soft magical hum",
           "duration": 1.2
         },
         {
           "id": "magic_door_close",
-          "prompt": "Heavy wooden castle door closing with a deep thud",
+          "prompt": "Heavy wooden castle door closing with a deep echoing thud",
           "duration": 0.9
         },
         {
           "id": "clock_bell",
-          "prompt": "Deep castle clock tower bell strike with a long humming decay",
+          "prompt": "Deep castle clock tower bell strike with a long humming decay, echoing over the grounds",
           "duration": 5.0
         },
         {
           "id": "moonpool_loop",
-          "prompt": "Moonpool: soft magical shimmer over gently lapping water",
+          "prompt": "Enchanted moonlit pond: gently lapping water, a soft magical shimmer and distant chimes",
           "loop": true
         },
         {
@@ -746,12 +746,12 @@
         },
         {
           "id": "deadwood_loop",
-          "prompt": "Deadwood Hollow: eerie wind through dead trees, creaking branches and a low drone",
+          "prompt": "Haunted dead forest: eerie wind through bare trees, creaking branches and a low ominous drone",
           "loop": true
         },
         {
           "id": "shore_loop",
-          "prompt": "Mourning Shore: slow waves rolling onto a foggy beach with a haunting low drone",
+          "prompt": "Foggy grey lake shore: slow waves rolling onto the beach with a haunting low drone",
           "loop": true
         }
       ]
