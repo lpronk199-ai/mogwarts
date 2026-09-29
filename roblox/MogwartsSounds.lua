@@ -10,6 +10,7 @@
 --
 -- Every call picks a random variant and nudges the pitch a little, so repeats never sound identical.
 -- A sound whose file is not uploaded yet returns nil (and stays silent), so callers can fall back.
+-- Sounds.LIBRARY can point any sound at recordings from the Roblox Creator Store instead.
 local SoundService = game:GetService("SoundService")
 local Debris = game:GetService("Debris")
 local ContentProvider = game:GetService("ContentProvider")
@@ -26,6 +27,13 @@ Sounds.ASSET_IDS = {
 	underwater_loop = 0, -- loop_underwater_loop.ogg (6.0 s)
 	deadwood_loop = 0,   -- loop_deadwood_loop.ogg (8.0 s)
 	shore_loop = 0,      -- loop_shore_loop.ogg (8.0 s)
+}
+
+-- Optional: real studio recordings from the Roblox Creator Store (Studio: Toolbox > Creator Store > Audio).
+-- They are free to use in Roblox and need no upload. Give a sound one or more ids and those play instead
+-- of the pack version (a random one each time). Example:
+--   cast = { 1234567890, 1234567891 },
+Sounds.LIBRARY = {
 }
 
 -- Affinity -> flavour layer
@@ -107,8 +115,8 @@ local function hostFor(where)
 	return where or SoundService
 end
 
-local function make(def, where, opts)
-	local id = Sounds.ASSET_IDS[def.file]
+local function make(def, where, opts, id)
+	id = id or Sounds.ASSET_IDS[def.file]
 	if not id or id == 0 then return nil end
 	local s = Instance.new("Sound")
 	s.Name = "MW_" .. def.file
@@ -124,10 +132,23 @@ local function make(def, where, opts)
 end
 
 -- One-shot. `where` is a part/attachment, a Vector3, or nil for 2D. opts: volume, pitch (multipliers), group.
+local function fromLibrary(name, def, where, opts)
+	local ids = Sounds.LIBRARY[name]
+	if not ids or #ids == 0 then return nil end
+	return make(def, where, opts, ids[math.random(#ids)])
+end
+
 function Sounds.play(name, where, opts)
 	local def = Sounds.LIST[name]
-	if not def or not def.parts then return nil end
+	if not def then return nil end
 	opts = opts or {}
+	local lib = fromLibrary(name, def, where, opts)
+	if lib then
+		lib:Play()
+		Debris:AddItem(lib, 20)
+		return lib
+	end
+	if not def.parts then return nil end
 	local s = make(def, where, opts)
 	if not s then return nil end
 	local part = def.parts[math.random(#def.parts)]
@@ -151,7 +172,7 @@ end
 function Sounds.loop(name, where, opts)
 	local def = Sounds.LIST[name]
 	if not def or not def.loop then return nil end
-	local s = make(def, where, opts or {})
+	local s = fromLibrary(name, def, where, opts or {}) or make(def, where, opts or {})
 	if not s then return nil end
 	s.Looped = true
 	s:Play()
@@ -167,13 +188,15 @@ end
 -- Call once on each client so the files are loaded before the first spell.
 function Sounds.preload()
 	local list = {}
-	for _, id in pairs(Sounds.ASSET_IDS) do
+	local function add(id)
 		if id ~= 0 then
 			local s = Instance.new("Sound")
 			s.SoundId = "rbxassetid://" .. tostring(id)
 			table.insert(list, s)
 		end
 	end
+	for _, id in pairs(Sounds.ASSET_IDS) do add(id) end
+	for _, ids in pairs(Sounds.LIBRARY) do for _, id in ipairs(ids) do add(id) end end
 	if #list > 0 then
 		task.spawn(function() pcall(ContentProvider.PreloadAsync, ContentProvider, list) end)
 	end

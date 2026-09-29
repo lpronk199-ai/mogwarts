@@ -28,8 +28,12 @@ python3 sfx/synth.py --force          # alles opnieuw renderen
 python3 sfx/synth.py --force fire     # alleen een categorie of een los geluid
 ```
 
-Elk geluid gaat aan het eind door dezelfde klankkleuring (`master` in `synth.py`): +6 dB laag onder
-140 Hz, -6 dB hoog boven 4,5 kHz en niets boven 11 kHz, zodat niets schel klinkt.
+De recepten gebruiken filmische bouwstenen in plaats van pieptonen: een zweepknal (`whipcrack`), sissende
+vonken (`fizz`), een klankschaal (`bowl`), een bellenboom (`bell_tree`), celesta, strijkers, koor, metaal (`clang`)
+en een galm met een octaaf-hogere glans (`shimmer_verb`).
+
+Elk geluid gaat aan het eind door dezelfde bewerking (`master` in `synth.py`): compressie en lichte
+verzadiging (`glue`), +6 dB laag onder 140 Hz, -6 dB hoog boven 4,5 kHz en niets boven 11 kHz.
 
 Het resultaat is elke keer hetzelfde. Wil je een geluid anders, pas dan het recept (de functie met
 dezelfde naam als het id) aan en render opnieuw. Loops zijn naadloos gemaakt, maar MP3 voegt bij het

@@ -158,15 +158,23 @@ METAL = ((1, 1, 1), (2.41, 0.7, 0.8), (3.87, 0.5, 0.6), (5.93, 0.35, 0.5))
 SPARK = ((1, 1, 1), (2.0, 0.25, 0.5))
 
 
-def tone(f, d, tau, partials=((1, 1, 1),), attack=0.003, vibrato=0.0, vib_rate=5.0):
-    """Struck/plucked tone: decaying partials (bells, chimes, glass, metal)."""
+def tone(f, d, tau, partials=((1, 1, 1),), attack=0.003, vibrato=0.0, vib_rate=5.0, chorus=0.0012, mallet=0.12):
+    """Struck tone (bells, chimes, glass, metal): decaying partials, each doubled a hair sharp so it
+    beats like a real instrument, plus a short mallet knock at the start."""
     t = tt(d)
     wob = 1 + vibrato * np.sin(2 * np.pi * vib_rate * t)
     out = np.zeros(n(d))
     for ratio, gain, factor in partials:
         if f * ratio < 18000:
-            out += gain * osc(f * ratio * wob) * np.exp(-t / (tau * factor))
-    return out * np.minimum(1.0, t / attack)
+            ring = osc(f * ratio * wob) + (0.6 * osc(f * ratio * (1 + chorus) * wob) if chorus else 0)
+            out += gain * ring * np.exp(-t / (tau * factor))
+    out *= np.minimum(1.0, t / attack)
+    if mallet:
+        k = min(d, 0.03)
+        g = np.random.default_rng(int(f * 997) & 0xFFFFFFFF)
+        knock = bp(g.standard_normal(n(k)), max(f * 0.5, 60), min(f * 4, 16000)) * decay(k, 0.004)
+        out[: n(k)] += mallet * nrm(knock) * np.max(np.abs(out))
+    return out
 
 
 # --------------------------------------------------------------------------- filters & effects
@@ -217,8 +225,21 @@ def shelf(x, kind, f, gain_db, slope=1.0):
     return signal.lfilter(np.array(b) / a[0], np.array(a) / a[0], x)
 
 
+def glue(x, threshold=0.25, ratio=3.0, window=0.02):
+    """Bus compressor plus soft saturation: tails and body come up under the transients, like a film mix."""
+    peak = np.max(np.abs(x))
+    if peak == 0:
+        return x
+    y = x / peak
+    b, a = signal.butter(1, 1 / (window * np.pi) / (SR / 2))
+    level = np.sqrt(np.maximum(signal.filtfilt(b, a, y ** 2), 1e-12))
+    gain = np.minimum(1.0, (level / threshold) ** (1 / ratio - 1))
+    return np.tanh(1.4 * y * gain) / np.tanh(1.4)
+
+
 def master(x):
-    """Final tone shaping for every sound: fuller lows, softer highs."""
+    """Final shaping for every sound: glue, fuller lows, softer highs."""
+    x = glue(x)
     x = shelf(x, "low", 140, 6.0)
     x = shelf(x, "high", 4500, -6.0)
     return lp(x, 11000)
@@ -266,6 +287,9 @@ def impulse(r, size, damp=5000.0, predelay=0.015):
     low = lp(noise(r, size * 1.2), 1500) * np.exp(-6.9 * t / size)
     high = hp(lp(noise(r, size * 1.2), damp), 1500) * np.exp(-6.9 * t / (size * 0.45))
     ir = hp(low + 0.8 * high, 100)
+    for t0 in np.sort(r.uniform(0.004, min(0.08, size * 0.3), 10)):  # early reflections off nearby walls
+        ir[n(t0)] += r.choice([-1.0, 1.0]) * np.exp(-t0 / 0.05) * 12 * np.std(ir[: n(0.1)])
+    ir = lp(ir, damp)
     return np.concatenate([np.zeros(n(predelay)), ir / np.sqrt(np.sum(ir ** 2))])
 
 
@@ -347,13 +371,18 @@ def crackle(r, d, rate, lo=1500, hi=9000, power=2.5):
     return bp(imp, lo, hi) / np.max(np.abs(bp(unit, lo, hi)))
 
 
-def sparkles(r, d, rate, lo=3000, hi=10000, tau=(0.03, 0.2), rise=0.0, partials=SPARK):
-    """Random tiny bell pings; `rise` shifts them up by that many octaves over d."""
+def tiny_bell(r):
+    """Partials of a small metal bell, slightly different every time."""
+    return ((1, 1, 1), (r.uniform(2.3, 2.9), 0.5, 0.55), (r.uniform(4.6, 5.8), 0.25, 0.3), (r.uniform(7.5, 9.5), 0.1, 0.2))
+
+
+def sparkles(r, d, rate, lo=3000, hi=10000, tau=(0.03, 0.2), rise=0.0, partials=None):
+    """Random tiny bells (a magical glitter); `rise` shifts them up by that many octaves over d."""
     x = np.zeros(n(d))
     for at in events(r, d, rate):
         k = r.uniform(*tau)
         f = loguniform(r, lo, hi) * 0.65 * 2 ** (rise * at / d)
-        put(x, tone(f, k * 5, k, partials, attack=0.001), at, r.uniform(0.2, 1.0))
+        put(x, tone(f, k * 5, k, partials or tiny_bell(r), attack=0.001, mallet=0.3), at, r.uniform(0.2, 1.0))
     return x
 
 
@@ -490,9 +519,10 @@ def choir(r, midis, d, vowel=((800, 6, 1.0), (1150, 8, 0.5), (2900, 12, 0.2))):
     t = tt(d)
     src = np.zeros(n(d))
     for m in midis:
-        for det in (-0.004, 0.0, 0.004):
-            vib = 1 + 0.004 * np.sin(2 * np.pi * 5 * t + r.uniform(0, 2 * np.pi))
+        for det in (-0.007, -0.003, 0.0, 0.003, 0.007):
+            vib = 1 + 0.004 * np.sin(2 * np.pi * r.uniform(4.6, 5.6) * t + r.uniform(0, 2 * np.pi))
             src += osc(hz(m) * (1 + det) * vib, "saw")
+    src = nrm(src) + 0.08 * noise(r, d)  # breath
     return nrm(formant(src, vowel) + 0.3 * lp(src, 1200) + 0.4 * lp(src, 350))
 
 
@@ -521,8 +551,8 @@ def big_hit(r, d=2.5):
     put(x, boom(d, 95, 28, 0.7, 2.5), 0)
     put(x, nrm(burst(r, 0.05, 0.008, lo=1200)), 0, 0.4)
     put(x, std1(lp(noise(r, 1.0, 2.0), 600)) * decay(1.0, 0.18, 0.002), 0, 0.8)
-    clang = tone(155, d, 0.9, METAL) + 0.7 * tone(233, d, 0.7, METAL) + 0.4 * tone(412, d, 0.5, METAL)
-    return put(x, drive(nrm(clang), 1.5), 0, 0.4)
+    metal = clang(r, 155, d, 350) + 0.7 * clang(r, 233, d, 300) + 0.4 * clang(r, 412, d, 250)
+    return put(x, drive(nrm(metal), 1.5), 0, 0.4)
 
 
 def riser(r, d):
@@ -564,6 +594,93 @@ def chirp(f, pulses=3, rate=30.0):
     d = pulses / rate
     t = tt(d)
     return osc(const(d, f)) * np.sin(np.pi * ((t * rate) % 1.0)) ** 2
+
+
+# --------------------------------------------------------------------------- film-style building blocks
+
+def whipcrack(r, bright=1.0):
+    """The crack of a spell leaving the wand: a tiny sonic-boom N-wave plus a snap of noise."""
+    d = 0.15
+    x = np.zeros(n(d))
+    w = n(0.0012)
+    x[:w] = np.linspace(1, -1, w)
+    x += std1(hp(noise(r, d), 1500 * bright)) * decay(d, 0.004, 0.0002) * 0.5
+    x += std1(bp(noise(r, d), 400, 3000)) * decay(d, 0.012, 0.0005) * 0.35
+    return drive(nrm(x), 2.5)
+
+
+def fizz(r, d, env, rate=2500):
+    """Fizzing wand sparks, like a sparkler."""
+    x = crackle(r, d, rate * env, 1800, 9000, power=1.8)
+    return x + std1(bp(noise(r, d), 2500, 9000)) * env * wobble(r, d, 60, 0.9) * 0.25
+
+
+def bowl(f, d, tau=1.5, beat=0.8):
+    """Singing bowl: inharmonic partials that beat slowly. Warm, magical, very un-bleepy."""
+    t = tt(d)
+    x = np.zeros(n(d))
+    for ratio, g, k in ((1, 1, 1), (2.71, 0.55, 0.6), (5.15, 0.25, 0.35), (8.43, 0.1, 0.2)):
+        x += g * (osc(const(d, f * ratio)) + osc(const(d, f * ratio + beat * ratio))) * np.exp(-t / (tau * k))
+    knock = bp(np.random.default_rng(int(f)).standard_normal(n(0.02)), f, min(f * 6, 12000)) * decay(0.02, 0.003)
+    x[: len(knock)] += nrm(knock) * 0.5 * np.max(np.abs(x))
+    return x * np.minimum(1.0, t / 0.002)
+
+
+def bell_tree(r, d, up=False, count=18, lo=2200, hi=6500):
+    """A bell tree run: a cascade of small bells, falling (or rising) in pitch."""
+    x = np.zeros(n(d + 1.2))
+    for i in range(count):
+        frac = i / max(count - 1, 1)
+        at = d * frac ** 1.3
+        f = np.exp(np.log(lo) + (np.log(hi) - np.log(lo)) * (frac if up else 1 - frac)) * r.uniform(0.97, 1.03)
+        put(x, tone(f, 1.2, r.uniform(0.25, 0.5), tiny_bell(r), attack=0.001, mallet=0.25), at, r.uniform(0.5, 1.0))
+    return x
+
+
+def celesta(midi, d=1.6, tau=0.9):
+    """Celesta note: the soft, glassy keyboard bell of wizard films."""
+    return tone(hz(midi), d, tau, ((1, 1, 1), (2.0, 0.15, 0.35), (2.76, 0.1, 0.2), (5.4, 0.04, 0.1)),
+                attack=0.002, mallet=0.25)
+
+
+def strings(r, midis, d, env, bright=2500):
+    """String section: many detuned saws with vibrato and bow noise, through a body resonance."""
+    t = tt(d)
+    src = np.zeros(n(d))
+    for m in midis:
+        for det in (-0.005, -0.002, 0.0, 0.002, 0.005):
+            vib = 1 + 0.003 * np.sin(2 * np.pi * r.uniform(5, 6) * t + r.uniform(0, 2 * np.pi))
+            src += osc(hz(m) * (1 + det) * vib, "saw")
+    src = nrm(src) + std1(bp(noise(r, d), 1500, 6000)) * 0.03
+    body_ = formant(src, [(300, 2, 0.6), (1000, 2, 0.5), (2500, 3, 0.3)]) + 0.5 * src
+    return nrm(sweep(body_, "lp", np.broadcast_to(bright, (n(d),)), 0.8)) * env
+
+
+def clang(r, f, d=2.0, q=150):
+    """Struck metal: a noise knock ringing an inharmonic set of resonances."""
+    hit = noise(r, d) * decay(d, 0.003)
+    return nrm(sum(g * reson(hit, f * ratio, q) for ratio, g in ((1, 1), (2.41, 0.7), (3.87, 0.5), (5.93, 0.35))))
+
+
+def rocks(r, d, count, spread, start=0.0):
+    """Stone debris raining down after an impact."""
+    x = np.zeros(n(d))
+    for at in start + r.exponential(spread, count):
+        if at >= d:
+            continue
+        size = r.random()
+        f = 220 + 900 * (1 - size)
+        hit = noise(r, 0.12) * decay(0.12, 0.003)
+        rock = nrm(sum(reson(hit, f * k, 6) for k in (1, 1.7, 2.9))) * decay(0.12, 0.02 + 0.03 * size)
+        put(x, rock + nrm(burst(r, 0.12, 0.003, lo=1500)) * 0.4, at, (0.3 + 0.7 * size) * np.exp(-(at - start) / (spread * 2)))
+    return x
+
+
+def shimmer_verb(r, x, size, wet):
+    """Reverb plus an octave-up copy of its tail: the glowing halo behind film magic."""
+    tail = signal.fftconvolve(x, impulse(r, size, 6000))[: len(x)]
+    up = np.interp(np.arange(len(tail)) * 2.0, np.arange(len(tail)), tail, right=0.0)
+    return x + wet * tail + wet * 0.35 * lp(up, 9000)
 
 
 # --------------------------------------------------------------------------- footsteps
@@ -1713,47 +1830,49 @@ def chapter_title(r, d):
 
 
 # --------------------------------------------------------------------------- Mogwarts (Roblox): combat
-# Variants of a sound share the recipe but get their own seed, so `p` (a small pitch factor) and
-# every random layer differ per variant.
+# Film-style: a spell is a crack, fizzing sparks and a push of air, never a laser "pew".
+# Variants share the recipe but get their own seed, so `p` (a small pitch factor) and every
+# random layer differ per variant.
 
 @sfx(peak=-2)
 def cast(r, d):
-    x = np.zeros(n(d + 0.6))
+    x = np.zeros(n(d + 0.8))
     p = r.uniform(0.9, 1.12)
-    put(x, osc(expo(0.12, (0, 2400 * p), (0.12, 500 * p))) * decay(0.12, 0.035, 0.0005), 0, 0.45)
-    put(x, nrm(burst(r, 0.05, 0.004, lo=1500, hi=7000)), 0, 0.3)
-    put(x, whoosh(r, 0.3, expo(0.3, (0, 900 * p), (0.3, 2500 * p)), lin(0.3, (0, 0), (0.03, 1), (0.3, 0)), q=1.2), 0, 0.35)
-    put(x, boom(0.3, 160 * p, 75 * p, 0.06, 1.8), 0, 0.9)
-    put(x, body(110 * p, decay(0.35, 0.09, 0.003), 0.6), 0, 0.35)
-    put(x, sparkles(r, 0.4, 70 * decay(0.4, 0.1, 0), 3000, 9000, (0.02, 0.08)), 0.03, 0.25)
-    return room(r, x, "small", 0.12)
+    put(x, whipcrack(r, p), 0, 0.8)
+    put(x, fizz(r, 0.45, lin(0.45, (0, 1), (0.45, 0)) ** 1.5, 2200), 0.005, 0.45)
+    put(x, whoosh(r, 0.35, expo(0.35, (0, 1400 * p), (0.35, 600)), lin(0.35, (0, 0), (0.02, 1), (0.35, 0)), q=0.9),
+        0, 0.35)
+    put(x, boom(0.3, 130 * p, 70 * p, 0.05, 1.6), 0, 0.7)
+    put(x, std1(lp(noise(r, 0.3, 2.0), 300)) * decay(0.3, 0.04, 0.002), 0, 0.35)
+    return room(r, x, "hall", 0.2)
 
 
 @sfx(peak=-2)
 def impact(r, d):
-    x = np.zeros(n(d + 0.8))
+    x = np.zeros(n(d + 1.0))
     p = r.uniform(0.88, 1.12)
-    put(x, boom(0.6, 140 * p, 50 * p, 0.12, 2.2), 0)
-    put(x, nrm(burst(r, 0.08, 0.01, lo=600, hi=5000)), 0, 0.5)
-    put(x, std1(lp(noise(r, 0.4, 2.0), 500)) * decay(0.4, 0.07, 0.002), 0, 0.6)
-    put(x, crackle(r, 0.6, 400 * decay(0.6, 0.08, 0), 800, 6000), 0.01, 0.5)
-    put(x, sparkles(r, 0.5, 90 * decay(0.5, 0.1, 0), 2500, 8000), 0.02, 0.25)
-    return room(r, x, "hall", 0.18)
+    put(x, whipcrack(r, 0.8 * p), 0, 0.9)
+    put(x, drive(nrm(burst(r, 0.3, 0.05, hi=3000, color=1.0)), 2.0), 0, 0.6)
+    put(x, boom(0.6, 120 * p, 45, 0.12, 2.2), 0, 0.9)
+    put(x, fizz(r, 0.7, decay(0.7, 0.18, 0.002), 3000), 0.01, 0.5)
+    put(x, crackle(r, 0.6, 250 * decay(0.6, 0.1, 0), 400, 3000, power=1.5), 0.02, 0.35)
+    return room(r, x, "hall", 0.25)
 
 
 @sfx()
 def blast(r, d):
-    x = np.zeros(n(d + 1.0))
+    x = np.zeros(n(d + 1.5))
     p = r.uniform(0.9, 1.1)
-    put(x, boom(1.5, 110 * p, 30, 0.45, 2.5), 0)
-    put(x, nrm(burst(r, 0.05, 0.006, lo=800)), 0, 0.4)
+    put(x, whipcrack(r, 0.7), 0, 0.8)
+    pressure = std1(sweep(noise(r, 1.5, 1.5), "lp", expo(1.5, (0, 5000), (0.3, 600), (1.5, 200)), 0.8))
+    put(x, drive(nrm(pressure * decay(1.5, 0.3, 0.004)), 1.8), 0, 1.0)
+    put(x, boom(1.8, 100 * p, 28, 0.5, 2.5), 0, 0.9)
     k = 1.2
-    put(x, whoosh(r, k, expo(k, (0, 300), (0.15, 1800 * p), (k, 250)), lin(k, (0, 0), (0.03, 1), (k, 0)) ** 1.5, q=0.9),
-        0, 0.7)
-    put(x, std1(lp(noise(r, k, 2.0), 400)) * decay(k, 0.25, 0.003), 0, 0.8)
-    put(x, crackle(r, 1.5, lin(1.5, (0, 0), (0.05, 300), (1.5, 5)), 500, 4000), 0, 0.4)
-    put(x, body(55 * p, decay(1.5, 0.4, 0.01)), 0, 0.5)
-    return room(r, x, "hall", 0.25)
+    put(x, whoosh(r, k, expo(k, (0, 400), (0.12, 2000 * p), (k, 300)), lin(k, (0, 0), (0.03, 1), (k, 0)) ** 1.5, q=0.8),
+        0, 0.5)
+    put(x, rocks(r, d, 25, 0.35, 0.12), 0, 0.5)
+    put(x, fizz(r, 1.2, decay(1.2, 0.3, 0.01), 1500), 0, 0.3)
+    return room(r, x, "castle", 0.3)
 
 
 @sfx()
@@ -1761,129 +1880,139 @@ def blast_whoosh(r, d):
     env = lin(d, (0, 0), (0.12, 1), (d, 0)) ** 1.3
     p = r.uniform(0.9, 1.1)
     x = whoosh(r, d, expo(d, (0, 200), (0.2, 1500 * p), (d, 300)), env, q=0.8)
+    x += whoosh(r, d, expo(d, (0, 600), (0.2, 3000 * p), (d, 800)), env * wobble(r, d, 12, 0.5), q=2.0) * 0.3
     x += std1(lp(noise(r, d, 2.0), 150)) * env * 0.6
-    x += body(70 * p, env) * 0.3
-    return room(r, fit(x, n(d + 0.5)), "hall", 0.12)
+    return room(r, fit(x, n(d + 0.8)), "hall", 0.15)
 
 
 @sfx(peak=-3, loop=2.0)
 def charge_loop(r, d, length):
     t = tt(d)
-    x = std1(sweep(noise(r, d, 1.0), "bp", 1400 * (1 + 0.4 * np.sin(2 * np.pi * 3 * t)), 3)) * 0.12
-    x += sparkles(r, d, 18, 3000, 8000, (0.03, 0.1)) * 0.2
+    swirl = std1(sweep(noise(r, d, 1.0), "bp", 1400 * (1 + 0.4 * np.sin(2 * np.pi * 3 * t)), 3)) * 0.15
+    x = swirl + fizz(r, d, const(d, 0.5), 700) * 0.25
     three = 3 * length
-
-    def tone_(f, shape="sine"):
-        return osc(const(three, snap(f, length)), shape)
-
-    hum = tone_(82.4, "saw") + tone_(82.9, "saw") + 0.6 * tone_(123.5, "saw") + 1.2 * tone_(82.4) + 0.8 * tone_(41.2)
-    hum = nrm(lp(hum, 900)[n(length): 2 * n(length)])
-    hum *= 0.8 + 0.2 * np.sin(2 * np.pi * snap(6, length) * tt(length))
-    return room(r, x, "small", 0.1), hum * 0.6
+    drone = np.zeros(n(three))
+    for ratio, g in ((1, 1.0), (2.71, 0.45), (5.15, 0.2)):
+        f = snap(110 * ratio, length)
+        drone += g * (osc(const(three, f)) + osc(const(three, f + snap(1.0, length))))
+    drone += 0.7 * osc(const(three, snap(55, length)))
+    drone = nrm(drone[n(length): 2 * n(length)])
+    drone *= 0.85 + 0.15 * np.sin(2 * np.pi * snap(5, length) * tt(length))
+    return room(r, x, "small", 0.12), drone * 0.55
 
 
 @sfx()
 def charge_full(r, d):
-    x = np.zeros(n(d + 1.0))
-    put(x, tone(hz(88), d, 0.25, GLASS), 0, 0.4)
-    put(x, tone(hz(95), d, 0.2, GLASS), 0.02, 0.25)
-    put(x, body(expo(d, (0, 60), (0.3, 90), (d, 90)), lin(d, (0, 0), (0.1, 1), (d, 0))), 0, 0.6)
-    put(x, whoosh(r, 0.3, expo(0.3, (0, 800), (0.3, 4000)), lin(0.3, (0, 0), (0.25, 1), (0.3, 0)), q=2.0), 0, 0.25)
-    return room(r, x, "hall", 0.2)
+    x = np.zeros(n(d + 1.2))
+    put(x, bowl(220, d + 0.8, 0.6), 0, 0.5)
+    put(x, bell_tree(r, 0.25, up=True, count=8), 0, 0.3)
+    put(x, body(expo(d, (0, 60), (0.3, 90), (d, 90)), lin(d, (0, 0), (0.1, 1), (d, 0))), 0, 0.45)
+    return shimmer_verb(r, x, 1.4, 0.35)
 
 
 @sfx()
 def charge_release(r, d):
-    x = np.zeros(n(d + 0.8))
+    x = np.zeros(n(d + 1.2))
     p = r.uniform(0.9, 1.1)
-    put(x, boom(1.0, 150 * p, 40, 0.3, 2.3), 0)
-    put(x, nrm(burst(r, 0.06, 0.006, lo=900)), 0, 0.5)
+    put(x, whipcrack(r, 0.8), 0, 1.0)
+    put(x, boom(1.0, 140 * p, 38, 0.3, 2.3), 0, 0.9)
     k = 0.8
-    put(x, whoosh(r, k, expo(k, (0, 400), (0.12, 3000 * p), (k, 500)), lin(k, (0, 0), (0.02, 1), (k, 0)) ** 1.4, q=1.1),
+    put(x, whoosh(r, k, expo(k, (0, 400), (0.12, 3000 * p), (k, 500)), lin(k, (0, 0), (0.02, 1), (k, 0)) ** 1.4, q=1.0),
         0, 0.6)
-    put(x, body(65 * p, decay(1.0, 0.3, 0.005)), 0, 0.5)
-    put(x, sparkles(r, 0.6, 120 * decay(0.6, 0.12, 0), 3000, 9000), 0.02, 0.25)
-    return room(r, x, "hall", 0.2)
+    put(x, fizz(r, 0.8, decay(0.8, 0.2, 0.002), 3000), 0.01, 0.4)
+    put(x, bell_tree(r, 0.4, count=10, lo=1800, hi=5000), 0.02, 0.15)
+    return room(r, x, "hall", 0.25)
 
 
 @sfx()
 def shield_up(r, d):
-    x = fit(shield_activate(r, d), n(d + 0.8))
-    put(x, body(expo(d, (0, 45), (0.45, 70), (d, 70)), lin(d, (0, 0), (0.4, 1), (1.1, 0.7), (d, 0))), 0, 0.45)
-    return x
+    x = np.zeros(n(d + 1.5))
+    sw = 0.35
+    put(x, whoosh(r, sw, expo(sw, (0, 300), (sw, 2500)), lin(sw, (0, 0), (sw, 1)) ** 2, q=1.5), 0, 0.35)
+    put(x, bowl(98, d + 1.0, 1.4, 0.6), sw, 0.8)
+    put(x, bowl(147, d + 1.0, 1.0, 0.9), sw, 0.35)
+    put(x, bell_tree(r, 0.5, up=True, count=12, lo=1800, hi=5500), sw - 0.05, 0.25)
+    put(x, body(49, lin(d, (0, 0), (sw, 1), (d, 0.3))), 0, 0.4)
+    return shimmer_verb(r, x, 1.8, 0.3)
 
 
 @sfx()
 def shield_block(r, d):
+    x = np.zeros(n(d + 1.2))
     p = r.uniform(0.9, 1.1)
-    x = fit(shield_hit(r, d), n(d + 0.6))
-    put(x, boom(0.5, 120 * p, 60 * p, 0.1, 2.0), 0, 0.8)
-    return x
+    ring = bowl(150 * p, d + 0.8, 0.5, 2.5)
+    ring *= 1 + 0.5 * decay(len(ring) / SR, 0.25) * np.sin(2 * np.pi * 13 * tt(len(ring) / SR))
+    put(x, ring, 0, 0.8)
+    put(x, boom(0.5, 120 * p, 55 * p, 0.1, 2.0), 0, 0.8)
+    put(x, whipcrack(r, 0.6), 0, 0.3)
+    return room(r, x, "hall", 0.2)
 
 
 @sfx()
 def dash(r, d):
     p = r.uniform(0.9, 1.12)
+    t = tt(d)
     env = lin(d, (0, 0), (0.05, 1), (d, 0)) ** 1.2
-    x = whoosh(r, d, expo(d, (0, 400 * p), (0.15, 2200 * p), (d, 500)), env, q=1.0) * 0.8
+    x = whoosh(r, d, expo(d, (0, 400 * p), (0.15, 2200 * p), (d, 500)) * (1 + 0.25 * np.sin(2 * np.pi * 9 * t)), env, q=1.0)
     x += std1(lp(noise(r, d, 2.0), 200)) * env * 0.7
-    x += body(expo(d, (0, 90 * p), (d, 60 * p)), env) * 0.35
-    x = fit(x, n(d + 0.5))
-    put(x, sparkles(r, 0.4, 40 * decay(0.4, 0.1, 0), 3000, 8000), 0.05, 0.2)
-    return room(r, x, "small", 0.1)
+    x = fit(x * 0.8, n(d + 0.6))
+    put(x, whipcrack(r, 0.5), 0, 0.35)
+    put(x, fizz(r, 0.3, lin(0.3, (0, 0.6), (0.3, 0)), 1500), 0.02, 0.2)
+    return room(r, x, "small", 0.12)
 
 
 @sfx()
 def mythic_cast(r, d):
-    x = np.zeros(n(d + 1.5))
+    x = np.zeros(n(d + 1.8))
     chord = [[48, 55, 60, 64, 67], [45, 52, 57, 60, 64]][int(r.integers(2))]
-    put(x, fit(cast(r, 0.6), n(0.6)), 0, 0.5)
-    put(x, boom(1.4, 90, 30, 0.45, 2.4), 0.05, 0.9)
-    put(x, choir(r, chord, d) * lin(d, (0, 0), (0.15, 1), (d, 0)) ** 1.2, 0, 0.35)
-    put(x, horn([chord[0] - 12, chord[0] - 5, chord[0]], 0.5), 0.05, 0.35)
-    put(x, sparkles(r, 1.4, lin(1.4, (0, 120), (1.4, 0)), 3000, 9000, rise=0.6), 0.05, 0.3)
+    put(x, whipcrack(r, 1.0), 0, 0.8)
+    put(x, fizz(r, 0.8, decay(0.8, 0.25, 0.002), 3000), 0.01, 0.4)
+    put(x, boom(1.4, 90, 30, 0.45, 2.4), 0.02, 0.9)
+    put(x, drum(r, 95, 55, 0.5), 0.02, 0.6)
+    put(x, choir(r, chord, d) * lin(d, (0, 0), (0.12, 1), (d, 0)) ** 1.2, 0, 0.4)
+    put(x, strings(r, [chord[0] - 12, chord[0]], d, lin(d, (0, 0), (0.05, 1), (d, 0)), 1800), 0, 0.25)
+    put(x, bell_tree(r, 0.8, count=16), 0.05, 0.25)
     return room(r, x, "castle", 0.35)
 
 
 @sfx()
 def duel_draw(r, d):
-    x = np.zeros(n(d + 0.6))
+    x = np.zeros(n(d + 1.0))
     p = r.uniform(0.92, 1.08)
     put(x, std1(bp(noise(r, 0.3, 0.5), 1200, 5000)) * wobble(r, 0.3, 30, 0.8) * lin(0.3, (0, 0), (0.06, 1), (0.3, 0)),
-        0, 0.3)
-    put(x, std1(bp(noise(r, 0.25), 500, 1800)) * lin(0.25, (0, 0), (0.05, 1), (0.25, 0)), 0.15, 0.2)
-    put(x, body(98 * p, lin(0.5, (0, 0), (0.25, 1), (0.5, 0))), 0.1, 0.35)
-    put(x, sparkles(r, 0.3, 40 * decay(0.3, 0.1, 0), 3500, 9000), 0.35, 0.2)
-    return room(r, x, "small", 0.1)
+        0, 0.35)
+    put(x, std1(bp(noise(r, 0.25), 500, 1800)) * lin(0.25, (0, 0), (0.05, 1), (0.25, 0)), 0.15, 0.25)
+    put(x, bowl(196 * p, 1.0, 0.5), 0.3, 0.25)
+    put(x, bell_tree(r, 0.2, up=True, count=5), 0.32, 0.12)
+    return room(r, x, "small", 0.15)
 
 
 @sfx()
 def duel_holster(r, d):
-    x = np.zeros(n(d + 0.5))
+    x = np.zeros(n(d + 0.8))
     p = r.uniform(0.92, 1.08)
     put(x, std1(bp(noise(r, 0.3, 0.5), 900, 4000)) * wobble(r, 0.3, 25, 0.7) * lin(0.3, (0, 0), (0.08, 1), (0.3, 0)),
-        0, 0.3)
-    put(x, body(expo(0.45, (0, 98 * p), (0.45, 65 * p)), decay(0.45, 0.15, 0.01)), 0.05, 0.3)
-    return room(r, x, "small", 0.1)
+        0, 0.35)
+    put(x, bowl(147 * p, 0.8, 0.3), 0.08, 0.2)
+    return room(r, x, "small", 0.12)
 
 
 @sfx()
 def knockout(r, d):
-    x = fit(big_hit(r, d), n(d + 1.5))
-    put(x, tone(hz(84), d, 0.6, CHIME), 0, 0.3)
-    put(x, tone(hz(91), d, 0.5, CHIME), 0.01, 0.2)
-    put(x, body(55, decay(d, 0.5, 0.005)), 0, 0.4)
-    return reverb(r, x, 2.0, 0.35, 4000)
+    x = fit(big_hit(r, d), n(d + 2.0))
+    put(x, whipcrack(r, 0.9), 0, 0.6)
+    put(x, choir(r, [48, 55, 60, 63], d) * decay(d, 0.5, 0.01), 0, 0.3)
+    put(x, bowl(165, d, 0.8, 1.5), 0, 0.25)
+    return reverb(r, x, 2.2, 0.4, 4000)
 
 
 @sfx()
 def defeat(r, d):
-    x = np.zeros(n(d + 1.5))
+    x = np.zeros(n(d + 1.8))
     k = 1.2
     put(x, whoosh(r, k, expo(k, (0, 2000), (k, 150)), lin(k, (0, 0), (0.1, 1), (k, 0.3)), q=1.2), 0, 0.6)
     put(x, boom(1.5, 80, 30, 0.5, 2.2), 0.4)
-    drone = nrm(lp(osc(const(2.0, 55), "saw") + osc(const(2.0, 58), "saw"), 300)) * decay(2.0, 0.7, 0.05)
-    put(x, drone, 0.4, 0.3)
+    put(x, strings(r, [38, 39, 45], 2.0, decay(2.0, 0.8, 0.05), 900), 0.4, 0.35)
     put(x, heartbeat(r), 1.0, 0.7)
     put(x, heartbeat(r), 1.9, 0.4)
     x = sweep(x, "lp", expo(len(x) / SR, (0, 5000), (1.0, 1500), (len(x) / SR, 400)), 0.7)
@@ -1892,36 +2021,37 @@ def defeat(r, d):
 
 @sfx()
 def respawn(r, d):
-    x = np.zeros(n(d + 1.2))
+    x = np.zeros(n(d + 1.6))
     arrive = 1.2
-    put(x, reverse_crash(r, arrive), 0, 0.6)
-    for m in (72, 76, 79, 84):
-        put(x, tone(hz(m), 1.2, 0.8, CHIME, attack=0.006), arrive, 0.25)
-    put(x, sparkles(r, 0.8, lin(0.8, (0, 80), (0.8, 0)), 3000, 9000, rise=0.4), arrive, 0.3)
-    put(x, body(130.8, decay(0.8, 0.3, 0.01)), arrive, 0.3)
+    rev = bell_tree(r, arrive, up=True, count=20, lo=1500, hi=6000)[: n(arrive)]
+    put(x, rev * lin(arrive, (0, 0), (arrive, 1)), 0, 0.35)
+    put(x, reverse_crash(r, arrive), 0, 0.35)
+    put(x, choir(r, [60, 64, 67, 72], 1.4) * lin(1.4, (0, 0), (0.1, 1), (1.4, 0)), arrive - 0.1, 0.3)
+    for i, m in enumerate((79, 84)):
+        put(x, celesta(m), arrive + i * 0.12, 0.35)
     put(x, boom(0.8, 90, 50, 0.2), arrive, 0.5)
-    return room(r, x, "hall", 0.3)
+    return shimmer_verb(r, x, 1.8, 0.3)
 
 
 @sfx(peak=-3)
 def burn_tick(r, d):
-    x = np.zeros(n(d + 0.4))
+    x = np.zeros(n(d + 0.5))
     p = r.uniform(0.85, 1.15)
     flare = std1(sweep(noise(r, 0.3, 1.0), "lp", expo(0.3, (0, 300), (0.04, 3000 * p), (0.3, 600)), 0.8))
     put(x, flare * decay(0.3, 0.06, 0.005), 0, 0.7)
     put(x, crackle(r, 0.35, 300 * decay(0.35, 0.08, 0), 1500, 7000), 0, 0.4)
-    put(x, boom(0.25, 120 * p, 70 * p, 0.04, 1.5), 0, 0.6)
-    return room(r, x, "small", 0.1)
+    put(x, std1(lp(noise(r, 0.25, 2.0), 200)) * decay(0.25, 0.04, 0.003), 0, 0.6)
+    return room(r, x, "small", 0.12)
 
 
 @sfx()
 def frost_slow(r, d):
-    x = np.zeros(n(d + 0.6))
+    x = np.zeros(n(d + 0.8))
     put(x, crackle(r, 0.5, lin(0.5, (0, 600), (0.5, 20)), 800, 6000), 0, 0.6)
-    put(x, sparkles(r, 0.6, 60 * decay(0.6, 0.15, 0), 2500, 8000, (0.03, 0.12), partials=GLASS), 0, 0.3)
+    put(x, bell_tree(r, 0.35, count=10, lo=2500, hi=7000), 0, 0.25)
+    put(x, std1(hp(noise(r, 0.6), 4000)) * decay(0.6, 0.2, 0.01), 0, 0.12)
     put(x, std1(lp(noise(r, 0.5, 2.0), 250)) * lin(0.5, (0, 0), (0.05, 1), (0.5, 0)), 0, 0.6)
-    put(x, body(70, decay(0.5, 0.12, 0.01)), 0, 0.4)
-    return room(r, x, "hall", 0.15)
+    return room(r, x, "hall", 0.2)
 
 
 @sfx()
@@ -1930,42 +2060,41 @@ def lifesteal(r, d):
     env = lin(d, (0, 0), (0.6, 1), (d, 0))
     fc = expo(d, (0, 3000), (d, 300)) * (1 + 0.3 * np.sin(2 * np.pi * 7 * t))
     x = std1(sweep(noise(r, d, 1.0), "bp", fc, 3)) * env * 0.6
-    x += nrm(lp(osc(expo(d, (0, 400), (d, 150)), "saw"), 800)) * env * 0.2
-    x += body(expo(d, (0, 110), (d, 55)), env) * 0.4
-    return room(r, fit(x, n(d + 0.6)), "hall", 0.2)
+    whisper = nrm(formant(noise(r, d), [(500, 4, 1.0), (1100, 5, 0.6), (2400, 6, 0.3)])) * env
+    x += whisper * 0.3 + body(expo(d, (0, 110), (d, 55)), env) * 0.4
+    return room(r, fit(x, n(d + 0.8)), "castle", 0.3)
 
 
 @sfx()
 def crystal_shatter(r, d):
-    x = np.zeros(n(d + 0.8))
+    x = np.zeros(n(d + 1.0))
     put(x, shatter(r, d, shards=40, lo=1500, hi=7000, spread=0.08), 0, 0.8)
+    put(x, bell_tree(r, 0.5, count=12, lo=2000, hi=6000), 0.02, 0.2)
     put(x, boom(0.5, 130, 60, 0.1, 1.8), 0, 0.8)
-    return room(r, x, "hall", 0.2)
+    return room(r, x, "hall", 0.25)
 
 
 # --------------------------------------------------------------------------- Mogwarts: affinity layers (play with `cast`)
 
 @sfx()
 def aff_fire(r, d):
-    x = np.zeros(n(d + 0.5))
+    x = np.zeros(n(d + 0.6))
     k = 0.6
-    put(x, std1(sweep(noise(r, k, 1.0), "lp", expo(k, (0, 250), (0.05, 3500), (k, 700)), 0.9)) * decay(k, 0.15, 0.004), 0)
+    whump = std1(sweep(noise(r, k, 1.0), "lp", expo(k, (0, 250), (0.05, 3500), (k, 700)), 0.9)) * decay(k, 0.15, 0.004)
+    put(x, whump, 0)
     put(x, roar(r, k, 1500) * lin(k, (0, 0), (0.05, 1), (k, 0)), 0, 0.5)
     put(x, crackle(r, k, 60), 0, 0.4)
-    put(x, body(90, decay(k, 0.12, 0.004)), 0, 0.4)
-    return room(r, x, "small", 0.12)
+    return room(r, x, "small", 0.15)
 
 
 @sfx()
 def aff_ice(r, d):
-    x = np.zeros(n(d + 0.6))
-    for i, m in enumerate((88, 95, 100)):
-        put(x, tone(hz(m), 0.6, 0.18, GLASS), i * 0.03, 0.25)
+    x = np.zeros(n(d + 1.0))
+    put(x, bell_tree(r, 0.3, count=10, lo=2500, hi=7000), 0, 0.35)
     put(x, crackle(r, 0.4, lin(0.4, (0, 500), (0.4, 0)), 1000, 6000), 0, 0.5)
-    put(x, sparkles(r, 0.6, 60 * decay(0.6, 0.15, 0), 3000, 9000, partials=GLASS), 0, 0.3)
+    put(x, std1(hp(noise(r, 0.5), 3500)) * decay(0.5, 0.15, 0.01), 0, 0.15)
     put(x, std1(lp(noise(r, 0.4, 2.0), 250)) * decay(0.4, 0.08, 0.01), 0, 0.5)
-    put(x, body(98, decay(0.4, 0.1, 0.005)), 0, 0.3)
-    return room(r, x, "hall", 0.2)
+    return shimmer_verb(r, x, 1.2, 0.25)
 
 
 @sfx()
@@ -1975,179 +2104,174 @@ def aff_wind(r, d):
     x = whoosh(r, d, 900 * (1 + 0.5 * np.sin(2 * np.pi * 5 * t)), env, q=1.4)
     x += std1(sweep(noise(r, d), "bp", 1800 * (1 + 0.3 * np.sin(2 * np.pi * 4 * t)), 10)) * env * 0.15
     x += std1(lp(noise(r, d, 2.0), 180)) * env * 0.5
-    return room(r, fit(x, n(d + 0.5)), "hall", 0.12)
+    return room(r, fit(x, n(d + 0.6)), "hall", 0.15)
 
 
 @sfx()
 def aff_storm(r, d):
-    x = np.zeros(n(d + 0.6))
-    put(x, zap(r), 0, 0.8)
+    x = np.zeros(n(d + 0.8))
+    put(x, whipcrack(r, 1.2), 0, 0.8)
     put(x, sparks(r, 0.5, lin(0.5, (0, 120), (0.5, 0))), 0, 0.5)
-    put(x, thunder(r, 0.6, 300, 0.15), 0.02, 0.8)
-    put(x, boom(0.4, 120, 55, 0.08, 1.8), 0, 0.6)
-    return room(r, x, "hall", 0.18)
+    put(x, thunder(r, 0.7, 300, 0.18), 0.02, 0.9)
+    return room(r, x, "hall", 0.2)
 
 
 @sfx()
 def aff_nature(r, d):
-    x = np.zeros(n(d + 0.6))
+    x = np.zeros(n(d + 1.0))
     put(x, crackle(r, 0.5, 700 * lin(0.5, (0, 0), (0.05, 1), (0.5, 0)), 2000, 7000), 0, 0.4)
     put(x, std1(bp(noise(r, 0.5), 1500, 6000)) * lin(0.5, (0, 0), (0.05, 1), (0.5, 0)), 0, 0.15)
     put(x, fit(wood_body(r, 0.8), n(0.4)), 0, 0.5)
-    for i, m in enumerate((62, 66, 69)):
-        put(x, tone(hz(m + 12), 0.6, 0.3, CHIME), 0.02 + i * 0.05, 0.2)
-    put(x, body(146.8, decay(0.5, 0.15, 0.01)), 0, 0.3)
-    return room(r, x, "hall", 0.15)
+    for i, m in enumerate((74, 78, 81)):
+        put(x, celesta(m, 1.0, 0.5), 0.02 + i * 0.06, 0.25)
+    return room(r, x, "hall", 0.2)
 
 
 @sfx()
 def aff_dark(r, d):
-    x = np.zeros(n(d + 0.8))
+    x = np.zeros(n(d + 1.0))
     env = lin(d, (0, 0), (0.08, 1), (d, 0))
     put(x, std1(sweep(noise(r, d, 1.5), "lp", expo(d, (0, 250), (0.1, 1200), (d, 200)), 1.3)) * env, 0, 0.7)
-    v = 0.6
-    f = expo(v, (0, 170), (v, 120))
-    ghost = nrm(formant(osc(f, "saw"), [(300, 5, 1.0), (870, 7, 0.4)])) * lin(v, (0, 0), (0.1, 1), (v, 0))
-    put(x, echo(fit(ghost, n(v + 0.6)), 0.15, 0.4, 1800), 0, 0.2)
-    put(x, body(55, env), 0, 0.45)
-    return room(r, x, "castle", 0.3)
+    put(x, choir(r, [36, 43, 44], d, ((300, 5, 1.0), (870, 7, 0.4))) * env, 0, 0.35)
+    rev = reverse_crash(r, 0.25)
+    put(x, rev, 0, 0.3)
+    return room(r, x, "castle", 0.35)
 
 
 @sfx()
 def aff_light(r, d):
-    x = np.zeros(n(d + 0.8))
-    put(x, std1(hp(noise(r, 0.2), 2500)) * decay(0.2, 0.03, 0.002), 0, 0.3)
-    for m in (76, 83, 88):
-        put(x, tone(hz(m), d, 0.4, CHIME), 0, 0.3)
-    put(x, sparkles(r, 0.6, 100 * decay(0.6, 0.15, 0), 3000, 9000), 0, 0.3)
-    put(x, body(130.8, decay(0.6, 0.2, 0.01)), 0, 0.35)
-    return room(r, x, "hall", 0.25)
+    x = np.zeros(n(d + 1.2))
+    put(x, bell_tree(r, 0.35, count=12, lo=2000, hi=6000), 0, 0.4)
+    put(x, choir(r, [72, 76, 79], d) * lin(d, (0, 0), (0.05, 1), (d, 0)), 0, 0.25)
+    put(x, std1(hp(noise(r, 0.2), 2500)) * decay(0.2, 0.03, 0.002), 0, 0.2)
+    return shimmer_verb(r, x, 1.4, 0.3)
 
 
 # --------------------------------------------------------------------------- Mogwarts: grimoire & rewards
+# Original celesta motifs in a minor key: the "enchanted castle" colour without borrowing any film melody.
 
 @sfx(peak=-3)
 def reroll(r, d):
-    x = np.zeros(n(d + 0.4))
+    x = np.zeros(n(d + 0.6))
     p = r.uniform(0.9, 1.12)
     k = 0.3
     env = lin(k, (0, 0), (0.05, 0.5), (0.2, 1), (k, 0))
     put(x, crackle(r, k, 900 * env, 1500, 7000), 0, 0.5)
     put(x, std1(bp(noise(r, k, 0.5), 1500, 6000)) * env, 0, 0.2)
     put(x, std1(lp(noise(r, 0.12, 2.0), 250)) * decay(0.12, 0.03, 0.005), 0.18, 0.5)
-    put(x, nrm(reson(noise(r, 0.1) * decay(0.1, 0.002), 1300 * p, 6)), 0.2, 0.3)
-    put(x, body(196 * p, decay(0.2, 0.06, 0.003)), 0.18, 0.25)
-    put(x, sparkles(r, 0.25, 40 * decay(0.25, 0.08, 0), 3500, 9000), 0.2, 0.15)
-    return room(r, x, "small", 0.1)
+    put(x, bell_tree(r, 0.12, up=True, count=4, lo=2500 * p, hi=5000 * p), 0.2, 0.15)
+    return room(r, x, "small", 0.12)
 
 
 @sfx()
 def reveal_common(r, d):
-    x = np.zeros(n(d + 0.8))
-    put(x, tone(hz(76), d, 0.4, CHIME), 0, 0.4)
-    put(x, tone(hz(83), d, 0.35, CHIME), 0.08, 0.35)
-    put(x, body(164.8, decay(d, 0.2, 0.01)), 0, 0.2)
-    return room(r, x, "hall", 0.2)
+    x = np.zeros(n(d + 1.2))
+    put(x, celesta(83, 1.2, 0.5), 0, 0.45)
+    put(x, celesta(88, 1.2, 0.6), 0.1, 0.4)
+    return shimmer_verb(r, x, 1.4, 0.25)
 
 
 @sfx()
 def reveal_rare(r, d):
-    x = np.zeros(n(d + 1.0))
-    for i, m in enumerate((72, 76, 79, 84)):
-        put(x, tone(hz(m), 1.2, 0.5, CHIME), i * 0.08, 0.4)
-    put(x, body(65.4, lin(d, (0, 0), (0.3, 1), (d, 0))), 0, 0.35)
-    put(x, sparkles(r, 1.0, lin(1.0, (0, 50), (1.0, 0)), 3000, 9000, rise=0.5), 0.05, 0.25)
-    return room(r, x, "hall", 0.3)
+    x = np.zeros(n(d + 1.4))
+    for i, m in enumerate((76, 79, 83, 88)):
+        put(x, celesta(m, 1.4, 0.7), i * 0.09, 0.4)
+    put(x, bell_tree(r, 0.5, up=True, count=12), 0.2, 0.15)
+    put(x, strings(r, [52, 59, 64], d, lin(d, (0, 0), (0.4, 1), (d, 0)), 1800), 0, 0.2)
+    return shimmer_verb(r, x, 1.8, 0.3)
 
 
 @sfx()
 def reveal_epic(r, d):
-    x = np.zeros(n(d + 1.2))
-    for i, m in enumerate((72, 76, 79, 84, 88, 91)):
-        put(x, tone(hz(m), 1.4, 0.5, GLOCK), i * 0.06, 0.35)
-    put(x, boom(1.2, 90, 40, 0.35, 2.0), 0.3, 0.8)
-    for m in (72, 79, 84, 88):
-        put(x, tone(hz(m), 1.6, 1.0, CHIME, attack=0.005), 0.3, 0.2)
-    put(x, sparkles(r, 1.5, lin(1.5, (0, 90), (1.5, 0)), 3000, 9000, rise=0.5), 0.2, 0.3)
-    put(x, body(65.4, lin(1.6, (0, 0), (0.05, 1), (1.6, 0))), 0.3, 0.35)
-    return room(r, x, "castle", 0.35)
+    x = np.zeros(n(d + 1.6))
+    for i, m in enumerate((71, 76, 79, 78, 76, 83)):
+        put(x, celesta(m, 1.4, 0.7), i * 0.11, 0.4)
+    put(x, strings(r, [40, 47, 52, 55], d, lin(d, (0, 0), (0.5, 1), (d, 0)), 2200), 0, 0.3)
+    put(x, drum(r, 95, 60, 0.5), 0.66, 0.6)
+    put(x, bell_tree(r, 0.8, count=16), 0.66, 0.2)
+    return shimmer_verb(r, x, 2.0, 0.3)
 
 
 @sfx()
 def reveal_legendary(r, d):
-    x = np.zeros(n(d + 1.4))
+    x = np.zeros(n(d + 1.8))
     hit = 0.1
-    put(x, horn([48, 60, 64, 67, 72, 76], 1.8, 0.5), hit, 0.5)
+    put(x, horn([48, 60, 64, 67, 72, 76], 1.8, 0.5), hit, 0.45)
+    put(x, strings(r, [48, 55, 60, 64], 2.2, lin(2.2, (0, 0), (0.05, 1), (2.2, 0)), 2600), hit, 0.3)
+    put(x, choir(r, [60, 64, 67, 72], 2.2) * lin(2.2, (0, 0), (0.3, 1), (2.2, 0)), hit, 0.25)
     put(x, drum(r, 95, 60, 0.5), hit, 0.8)
-    put(x, std1(hp(noise(r, 2.0), 3000)) * decay(2.0, 0.4, 0.003), hit, 0.15)
-    put(x, sparkles(r, 2.0, lin(2.0, (0, 140), (2.0, 0)), 3000, 9000, rise=0.4), hit, 0.3)
-    put(x, body(65.4, lin(2.2, (0, 0), (0.03, 1), (1.8, 0.7), (2.2, 0))), hit, 0.4)
-    return room(r, x, "hall", 0.35)
+    put(x, clang(r, 420, 2.0, 400) * decay(2.0, 0.6, 0.003), hit, 0.12)
+    put(x, std1(hp(noise(r, 2.0), 3000)) * decay(2.0, 0.4, 0.003), hit, 0.12)
+    put(x, bell_tree(r, 1.0, count=20), hit + 0.05, 0.25)
+    return room(r, x, "castle", 0.35)
 
 
 @sfx()
 def reveal_mythic(r, d):
     x = np.zeros(n(d + 2.0))
     env = lin(d, (0, 0), (0.03, 1), (1.2, 0.8), (d, 0))
-    blast_ = drive(brass([hz(m) for m in (36, 43, 48, 52)], expo(d, (0, 150), (0.08, 2400), (1.2, 900), (d, 300))), 3)
-    put(x, blast_ * env, 0, 0.5)
+    brass_ = drive(brass([hz(m) for m in (36, 43, 48, 52)], expo(d, (0, 150), (0.08, 2400), (1.2, 900), (d, 300))), 3)
+    put(x, brass_ * env, 0, 0.45)
     put(x, big_hit(r), 0, 0.7)
-    put(x, choir(r, [48, 55, 60, 64, 67, 72], d) * lin(d, (0, 0), (0.6, 1), (d, 0)), 0, 0.35)
-    for m in (84, 88, 91, 96):
-        put(x, tone(hz(m), 2.5, 1.2, CHIME, attack=0.005), 0.4, 0.18)
-    put(x, sparkles(r, 3.0, lin(3.0, (0, 160), (3.0, 0)), 3000, 9000, rise=0.8), 0.1, 0.35)
-    put(x, body(32.7, env ** 1.3, 0.6), 0, 0.5)
-    return room(r, x, "castle", 0.4)
+    put(x, choir(r, [48, 55, 60, 64, 67, 72], d) * lin(d, (0, 0), (0.5, 1), (d, 0)), 0, 0.4)
+    put(x, strings(r, [36, 48, 55, 60], d, lin(d, (0, 0), (0.1, 1), (d, 0)), 2500), 0, 0.3)
+    for i, m in enumerate((83, 88, 91, 95, 96)):
+        put(x, celesta(m, 1.6, 0.8), 0.5 + i * 0.1, 0.25)
+    put(x, bell_tree(r, 1.5, count=28), 0.1, 0.3)
+    put(x, body(32.7, env ** 1.3, 0.6), 0, 0.45)
+    return shimmer_verb(r, x, 2.5, 0.3)
 
 
 @sfx()
 def code_redeem(r, d):
-    x = np.zeros(n(d + 1.0))
+    x = np.zeros(n(d + 1.4))
     for at in np.sort(r.uniform(0, 0.4, 9)):
-        put(x, tone(r.uniform(2200, 4800), 0.3, r.uniform(0.04, 0.09), METAL, attack=0.0005), at, r.uniform(0.1, 0.25))
+        put(x, clang(r, r.uniform(1800, 3800), 0.3, 120) * decay(0.3, 0.06, 0.0005), at, r.uniform(0.1, 0.25))
     for i, m in enumerate((79, 83, 86, 91)):
-        put(x, tone(hz(m), 1.0, 0.5, CHIME), 0.35 + i * 0.07, 0.35)
-    put(x, body(98, lin(1.0, (0, 0), (0.05, 1), (1.0, 0))), 0.35, 0.3)
-    put(x, sparkles(r, 0.8, lin(0.8, (0, 60), (0.8, 0)), 3000, 9000, rise=0.4), 0.5, 0.25)
-    return room(r, x, "hall", 0.25)
+        put(x, celesta(m, 1.2, 0.6), 0.35 + i * 0.08, 0.35)
+    put(x, bell_tree(r, 0.5, up=True, count=10), 0.5, 0.15)
+    return shimmer_verb(r, x, 1.6, 0.3)
 
 
-# --------------------------------------------------------------------------- Mogwarts: interface
+# --------------------------------------------------------------------------- Mogwarts: interface (parchment, wood and leather)
 
 @sfx(peak=-4)
 def ui_click(r, d):
-    x = np.zeros(n(d + 0.1))
+    x = np.zeros(n(d + 0.15))
     p = r.uniform(0.92, 1.08)
     put(x, nrm(reson(noise(r, 0.1) * decay(0.1, 0.002), 1350 * p, 6)), 0, 0.5)
-    put(x, osc(const(0.15, 180 * p)) * decay(0.15, 0.015, 0.0005), 0, 0.6)
+    put(x, nrm(reson(noise(r, 0.15) * decay(0.15, 0.003), 190 * p, 4)), 0, 0.6)
     put(x, nrm(burst(r, 0.02, 0.0008, lo=2500)), 0, 0.12)
-    return room(r, x, "small", 0.05)
+    return room(r, x, "small", 0.06)
 
 
 @sfx(peak=-9)
 def ui_hover(r, d):
+    x = np.zeros(n(d + 0.1))
     p = r.uniform(0.95, 1.05)
-    x = osc(const(d, 700 * p)) * decay(d, 0.012, 0.001) * 0.4 + osc(const(d, 220 * p)) * decay(d, 0.02, 0.001) * 0.5
-    return fit(x, n(d + 0.05))
+    put(x, nrm(bp(noise(r, 0.05), 1500 * p, 6000)) * decay(0.05, 0.006, 0.0005), 0, 0.5)
+    put(x, nrm(reson(noise(r, 0.1) * decay(0.1, 0.002), 240 * p, 3)), 0, 0.4)
+    return x
 
 
 @sfx(peak=-3)
 def ui_open(r, d):
-    x = np.zeros(n(d + 0.6))
-    put(x, boom(0.3, 120, 70, 0.04, 1.3), 0, 0.7)
+    x = np.zeros(n(d + 1.0))
+    put(x, nrm(reson(noise(r, 0.3) * decay(0.3, 0.004), 110, 3)), 0, 0.7)
     put(x, std1(lp(noise(r, 0.2, 2.0), 400)) * decay(0.2, 0.03, 0.002), 0, 0.5)
-    put(x, std1(bp(noise(r, 0.4, 0.5), 800, 4000)) * lin(0.4, (0, 0), (0.15, 1), (0.4, 0)), 0.08, 0.3)
-    put(x, sparkles(r, 0.5, 30 * decay(0.5, 0.15, 0), 3000, 8000), 0.2, 0.12)
-    return room(r, x, "small", 0.12)
+    put(x, crackle(r, 0.4, 900 * lin(0.4, (0, 0), (0.15, 1), (0.4, 0)), 1500, 7000), 0.08, 0.4)
+    put(x, std1(bp(noise(r, 0.4, 0.5), 800, 4000)) * lin(0.4, (0, 0), (0.15, 1), (0.4, 0)), 0.08, 0.25)
+    put(x, bell_tree(r, 0.25, up=True, count=5), 0.25, 0.08)
+    return room(r, x, "small", 0.15)
 
 
 @sfx(peak=-3)
 def ui_close(r, d):
-    x = np.zeros(n(d + 0.4))
+    x = np.zeros(n(d + 0.5))
     put(x, std1(bp(noise(r, 0.2, 0.5), 800, 3500)) * lin(0.2, (0, 0), (0.12, 1), (0.2, 0)), 0, 0.25)
-    put(x, boom(0.3, 110, 65, 0.04, 1.3), 0.14, 0.7)
+    put(x, nrm(reson(noise(r, 0.3) * decay(0.3, 0.004), 100, 3)), 0.14, 0.7)
     put(x, std1(lp(noise(r, 0.2, 2.0), 400)) * decay(0.2, 0.025, 0.002), 0.14, 0.4)
-    return room(r, x, "small", 0.1)
+    return room(r, x, "small", 0.12)
 
 
 @sfx(peak=-4)
@@ -2163,11 +2287,11 @@ def ui_tab(r, d):
 
 @sfx(peak=-4)
 def ui_denied(r, d):
-    x = np.zeros(n(d + 0.2))
+    x = np.zeros(n(d + 0.3))
     for at in (0.0, 0.12):
-        put(x, osc(const(0.12, 140)) * decay(0.12, 0.03, 0.001), at, 0.7)
+        put(x, nrm(reson(noise(r, 0.15) * decay(0.15, 0.003), 150, 5)), at, 0.7)
         put(x, std1(lp(noise(r, 0.08), 900)) * decay(0.08, 0.008, 0.0005), at, 0.4)
-    return room(r, x, "small", 0.06)
+    return room(r, x, "small", 0.08)
 
 
 # --------------------------------------------------------------------------- Mogwarts: world

@@ -2,7 +2,8 @@
 """Export the Mogwarts game sounds for Roblox.
 
     pip install numpy scipy soundfile
-    python3 sfx/roblox_export.py
+    python3 sfx/roblox_export.py                  # from the synthesized recipes
+    python3 sfx/roblox_export.py --source files   # from the MP3s in assets/sfx (e.g. made by generate.py)
 
 Roblox limits how many audio files you may upload, so the one-shot sounds are packed into a few
 long "sheet" files with half a second of silence between them. Each loop gets its own file.
@@ -12,6 +13,7 @@ Writes:
                                   in which file; after uploading you only fill in ASSET_IDS
 """
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -76,6 +78,7 @@ MODULE_HEAD = '''-- MogwartsSounds: every effect of the Mogwarts sound pack in o
 --
 -- Every call picks a random variant and nudges the pitch a little, so repeats never sound identical.
 -- A sound whose file is not uploaded yet returns nil (and stays silent), so callers can fall back.
+-- Sounds.LIBRARY can point any sound at recordings from the Roblox Creator Store instead.
 local SoundService = game:GetService("SoundService")
 local Debris = game:GetService("Debris")
 local ContentProvider = game:GetService("ContentProvider")
@@ -98,8 +101,8 @@ local function hostFor(where)
 	return where or SoundService
 end
 
-local function make(def, where, opts)
-	local id = Sounds.ASSET_IDS[def.file]
+local function make(def, where, opts, id)
+	id = id or Sounds.ASSET_IDS[def.file]
 	if not id or id == 0 then return nil end
 	local s = Instance.new("Sound")
 	s.Name = "MW_" .. def.file
@@ -115,10 +118,23 @@ local function make(def, where, opts)
 end
 
 -- One-shot. `where` is a part/attachment, a Vector3, or nil for 2D. opts: volume, pitch (multipliers), group.
+local function fromLibrary(name, def, where, opts)
+	local ids = Sounds.LIBRARY[name]
+	if not ids or #ids == 0 then return nil end
+	return make(def, where, opts, ids[math.random(#ids)])
+end
+
 function Sounds.play(name, where, opts)
 	local def = Sounds.LIST[name]
-	if not def or not def.parts then return nil end
+	if not def then return nil end
 	opts = opts or {}
+	local lib = fromLibrary(name, def, where, opts)
+	if lib then
+		lib:Play()
+		Debris:AddItem(lib, 20)
+		return lib
+	end
+	if not def.parts then return nil end
 	local s = make(def, where, opts)
 	if not s then return nil end
 	local part = def.parts[math.random(#def.parts)]
@@ -142,7 +158,7 @@ end
 function Sounds.loop(name, where, opts)
 	local def = Sounds.LIST[name]
 	if not def or not def.loop then return nil end
-	local s = make(def, where, opts or {})
+	local s = fromLibrary(name, def, where, opts or {}) or make(def, where, opts or {})
 	if not s then return nil end
 	s.Looped = true
 	s:Play()
@@ -158,13 +174,15 @@ end
 -- Call once on each client so the files are loaded before the first spell.
 function Sounds.preload()
 	local list = {}
-	for _, id in pairs(Sounds.ASSET_IDS) do
+	local function add(id)
 		if id ~= 0 then
 			local s = Instance.new("Sound")
 			s.SoundId = "rbxassetid://" .. tostring(id)
 			table.insert(list, s)
 		end
 	end
+	for _, id in pairs(Sounds.ASSET_IDS) do add(id) end
+	for _, ids in pairs(Sounds.LIBRARY) do for _, id in ipairs(ids) do add(id) end end
 	if #list > 0 then
 		task.spawn(function() pcall(ContentProvider.PreloadAsync, ContentProvider, list) end)
 	end
@@ -174,9 +192,37 @@ return Sounds
 '''
 
 
+LIBRARY_BLOCK = """-- Optional: real studio recordings from the Roblox Creator Store (Studio: Toolbox > Creator Store > Audio).
+-- They are free to use in Roblox and need no upload. Give a sound one or more ids and those play instead
+-- of the pack version (a random one each time). Example:
+--   cast = { 1234567890, 1234567891 },
+Sounds.LIBRARY = {
+}
+"""
+
+
+def load_file(cat, sound, variant):
+    """A sound from assets/sfx (e.g. an ElevenLabs MP3): mono, 44.1 kHz, peak at -1 dB."""
+    path = dict(synth.variant_paths(cat, sound))[variant]
+    x, sr = sf.read(path, always_2d=True)
+    x = x.mean(axis=1)
+    if sr != synth.SR:
+        x = np.interp(np.arange(0, len(x) / sr, 1 / synth.SR) * sr, np.arange(len(x)), x)
+    return synth.nrm(x) * 10 ** (-1 / 20)
+
+
 def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--source", choices=["synth", "files"], default="synth",
+                        help="render the recipes (synth) or use the MP3s in assets/sfx (files)")
+    args = parser.parse_args()
     manifest = json.loads(synth.MANIFEST.read_text(encoding="utf-8"))
     by_cat = {c["id"]: c["sounds"] for c in manifest["categories"]}
+
+    def audio(cat, sound, variant=1):
+        if args.source == "files":
+            return load_file(cat, sound, variant)
+        return synth.render(sound["id"], sound.get("duration"), variant)
     (OUT / "audio").mkdir(parents=True, exist_ok=True)
 
     files, entries = [], []
@@ -188,7 +234,7 @@ def main():
                     continue
                 parts = []
                 for variant in range(1, sound.get("variants", 1) + 1):
-                    x = synth.render(sound["id"], sound["duration"], variant)
+                    x = audio(cat, sound, variant)
                     chunks += [x, np.zeros(synth.n(GAP))]
                     parts.append((pos, len(x) / synth.SR))
                     pos += (len(x) + synth.n(GAP)) / synth.SR
@@ -201,7 +247,7 @@ def main():
     for cat in SHEETS["combat"] + SHEETS["interface"] + SHEETS["world"]:
         for sound in by_cat[cat]:
             if sound.get("loop"):
-                x = synth.render(sound["id"]).astype(np.float32)
+                x = audio(cat, sound).astype(np.float32)
                 name = f"loop_{sound['id']}.ogg"
                 write_ogg(OUT / "audio" / name, x)
                 files.append((sound["id"], name, len(x) / synth.SR))
@@ -211,7 +257,7 @@ def main():
     width = max(len(key) for key, _, _ in files)
     for key, name, secs in files:
         lua.append(f"\t{key} = 0,{' ' * (width - len(key))} -- {name} ({secs:.1f} s)\n")
-    lua.append("}\n\n-- Affinity -> flavour layer\nSounds.AFFINITY = {\n")
+    lua.append("}\n\n" + LIBRARY_BLOCK + "\n-- Affinity -> flavour layer\nSounds.AFFINITY = {\n")
     for aff, key in AFFINITY.items():
         lua.append(f'\t{aff} = "{key}",\n')
     lua.append("}\n\n-- file, volume, pitch spread, range (studs; 0 = 2D), and per variant {start, length} in seconds\n")

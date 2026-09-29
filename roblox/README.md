@@ -82,6 +82,40 @@ Zolang er bij `ASSET_IDS` nog een `0` staat, blijven de oude geluiden gewoon wer
 | Deadwood Hollow, Mourning Shore, Moonpool | eigen sfeerloops die aanzwellen als je in de buurt komt |
 | Het wordt nacht | de klok van het kasteel slaat 3 keer (`BELLS` in Ambience) |
 
+## Echte filmgeluiden
+
+Deze geluiden zijn uit rekenwerk opgebouwd (synthese). Ze klinken filmisch, maar niet zo echt als opnames.
+Voor echte filmkwaliteit zijn er twee routes. Allebei werken ze met dezelfde module en dezelfde scripts.
+
+**1. Roblox Creator Store (gratis, geen uploads nodig).** Roblox heeft duizenden professionele
+geluidseffecten die je gratis in je game mag gebruiken.
+
+1. Open in Studio de **Toolbox**, kies **Creator Store → Audio** en zet het filter op **Sound Effects**.
+2. Zoek bijvoorbeeld op *magic spell*, *spell impact*, *whoosh*, *cinematic hit*, *shield*, *magic chime*,
+   *book page* of *castle door*.
+3. Luister, en klik met rechts op een geluid dat je mooi vindt → **Copy Asset ID**.
+4. Zet de id in `Sounds.LIBRARY` in `MogwartsSounds`, onder de naam van het geluid dat je wilt vervangen:
+
+```lua
+Sounds.LIBRARY = {
+	cast = { 1234567890, 1234567891 },   -- twee opnames: de game kiest er telkens één
+	impact = { 1234567892 },
+}
+```
+
+Je kunt zo één geluid tegelijk vervangen. Wat niet in `LIBRARY` staat, komt gewoon uit het pakket.
+
+**2. ElevenLabs (AI, alle prompts in één keer).** Alle prompts staan klaar in `sfx/prompts.json`, ook de varianten.
+Met een ElevenLabs-account draai je op je eigen computer:
+
+```bash
+export ELEVENLABS_API_KEY=...
+python3 sfx/generate.py --force game_combat game_affinity game_rewards game_ui game_world
+python3 sfx/roblox_export.py --source files
+```
+
+Daarna upload je de 8 nieuwe bestanden uit `roblox/audio/` en plak je de nieuwe `MogwartsSounds.lua` in Studio.
+
 ## Aanpassen
 
 - **Volume, toonhoogte en afstand per geluid:** in `MogwartsSounds.lua` staan bij `Sounds.LIST` per geluid
