@@ -1,0 +1,300 @@
+{
+  "suffix": ", fantasy video game sound effect, high quality, clean, no music",
+  "defaults": {
+    "model_id": "eleven_text_to_sound_v2",
+    "output_format": "mp3_44100_128",
+    "prompt_influence": 0.5
+  },
+  "categories": [
+    {
+      "id": "wizard_steps",
+      "label": "🧙‍♂️ Voetstappen tovenaar",
+      "sounds": [
+        {
+          "id": "wizard_steps_stone",
+          "prompt": "Slow footsteps of a heavy man in leather boots walking on a stone castle floor, long robe rustling softly",
+          "duration": 4
+        },
+        {
+          "id": "wizard_steps_wood",
+          "prompt": "Footsteps of a man in leather boots walking on an old creaking wooden floor, robe rustling",
+          "duration": 4
+        },
+        {
+          "id": "wizard_steps_grass",
+          "prompt": "Footsteps of a man in boots walking on soft grass and small gravel, cloak brushing",
+          "duration": 4
+        },
+        {
+          "id": "wizard_run_stone",
+          "prompt": "Fast running footsteps of a man in heavy boots on stone, robe flapping",
+          "duration": 3
+        },
+        {
+          "id": "wizard_jump_land",
+          "prompt": "Man in boots jumping and landing on a stone floor, cloth rustle",
+          "duration": 1
+        }
+      ]
+    },
+    {
+      "id": "witch_steps",
+      "label": "🧙‍♀️ Voetstappen heks",
+      "sounds": [
+        {
+          "id": "witch_steps_stone",
+          "prompt": "Light quick footsteps of a woman in heeled leather boots on a stone castle floor, flowing cloak swishing",
+          "duration": 4
+        },
+        {
+          "id": "witch_steps_wood",
+          "prompt": "Footsteps of a woman in heeled boots on a creaking wooden floor, dress rustling",
+          "duration": 4
+        },
+        {
+          "id": "witch_steps_grass",
+          "prompt": "Light footsteps of a woman walking on grass and leaves, cloak brushing",
+          "duration": 4
+        },
+        {
+          "id": "witch_run_stone",
+          "prompt": "Fast running footsteps of a woman in heeled boots on stone, cloak fluttering",
+          "duration": 3
+        }
+      ]
+    },
+    {
+      "id": "fire",
+      "label": "🔥 Vuur",
+      "sounds": [
+        {
+          "id": "fire_cast",
+          "prompt": "Fire spell cast: quick magical whoosh igniting into a roaring fireball launched forward, crackling flames",
+          "duration": 1.5
+        },
+        {
+          "id": "fire_projectile_loop",
+          "prompt": "Fireball flying through the air, roaring flame whoosh",
+          "loop": true
+        },
+        {
+          "id": "fire_impact",
+          "prompt": "Fireball impact: explosion with a burst of flames and crackling embers fading out",
+          "duration": 2
+        },
+        {
+          "id": "fire_stream_loop",
+          "prompt": "Continuous stream of fire shooting from a magic wand, roaring flames",
+          "loop": true
+        }
+      ]
+    },
+    {
+      "id": "ice",
+      "label": "❄️ IJs",
+      "sounds": [
+        {
+          "id": "ice_cast",
+          "prompt": "Ice spell cast: sharp crystalline shimmer and freezing wind, ice shards forming and shooting forward",
+          "duration": 1.5
+        },
+        {
+          "id": "ice_impact",
+          "prompt": "Ice shard impact: glass-like shattering and crunching frost with a cold hiss",
+          "duration": 1.5
+        },
+        {
+          "id": "ice_freeze",
+          "prompt": "Ice slowly crackling and spreading over a surface, freezing effect",
+          "duration": 3
+        },
+        {
+          "id": "ice_break_free",
+          "prompt": "Frozen target breaking free: thick ice cracking and shattering",
+          "duration": 2
+        }
+      ]
+    },
+    {
+      "id": "poison",
+      "label": "☠️ Gif",
+      "sounds": [
+        {
+          "id": "poison_cast",
+          "prompt": "Poison spell cast: bubbling toxic liquid, wet slimy hiss and sizzling acid",
+          "duration": 1.5
+        },
+        {
+          "id": "poison_cloud_loop",
+          "prompt": "Toxic poison cloud: gurgling bubbles and low hissing gas, eerie",
+          "loop": true
+        },
+        {
+          "id": "poison_impact",
+          "prompt": "Acid splash impact: wet splat followed by sizzling and hissing",
+          "duration": 1.5
+        },
+        {
+          "id": "poison_tick",
+          "prompt": "Poison damage tick: small sickly bubble pop with a faint hiss",
+          "duration": 0.5
+        }
+      ]
+    },
+    {
+      "id": "lightning",
+      "label": "⚡ Bliksem",
+      "sounds": [
+        {
+          "id": "lightning_cast",
+          "prompt": "Lightning spell cast: electric crackle building up into a sharp thunder zap",
+          "duration": 1.5
+        },
+        {
+          "id": "lightning_impact",
+          "prompt": "Lightning bolt impact: loud electric explosion with buzzing sparks and a thunder rumble",
+          "duration": 2
+        },
+        {
+          "id": "lightning_sparks_loop",
+          "prompt": "Electric sparks crackling around a magic wand",
+          "loop": true
+        }
+      ]
+    },
+    {
+      "id": "dark",
+      "label": "🌑 Duistere magie",
+      "sounds": [
+        {
+          "id": "dark_cast",
+          "prompt": "Dark magic spell cast: deep ominous whoosh with distorted ghostly echoes",
+          "duration": 2
+        },
+        {
+          "id": "dark_impact",
+          "prompt": "Shadow curse impact: low bass boom with an eerie reverse swell fading into darkness",
+          "duration": 2
+        },
+        {
+          "id": "dark_charge",
+          "prompt": "Dark energy charging up: deep rumbling drone growing more intense",
+          "duration": 3
+        }
+      ]
+    },
+    {
+      "id": "light",
+      "label": "✨ Licht & genezing",
+      "sounds": [
+        {
+          "id": "heal",
+          "prompt": "Healing spell: warm shimmering chimes rising gently with a soft glowing hum",
+          "duration": 2
+        },
+        {
+          "id": "light_cast",
+          "prompt": "Light spell cast: bright sparkling burst with a clean magical ring",
+          "duration": 1.5
+        },
+        {
+          "id": "revive",
+          "prompt": "Revive effect: angelic ethereal pad swelling up with sparkling bells",
+          "duration": 3
+        }
+      ]
+    },
+    {
+      "id": "shield_wind_earth",
+      "label": "🛡️ Schild, wind & aarde",
+      "sounds": [
+        {
+          "id": "shield_activate",
+          "prompt": "Magic shield activating: deep humming energy dome forming with a shimmering chime",
+          "duration": 1.5
+        },
+        {
+          "id": "shield_hit",
+          "prompt": "Spell hitting a magic shield: resonating bassy impact with an energy ripple",
+          "duration": 1
+        },
+        {
+          "id": "shield_break",
+          "prompt": "Magic shield breaking: glassy energy shattering with a fading hum",
+          "duration": 1.5
+        },
+        {
+          "id": "wind_cast",
+          "prompt": "Wind spell cast: powerful gust of wind whooshing forward with a magical swirl",
+          "duration": 1.5
+        },
+        {
+          "id": "earth_cast",
+          "prompt": "Earth spell: rocks bursting out of the ground with rumbling and cracking stone",
+          "duration": 2
+        }
+      ]
+    },
+    {
+      "id": "special",
+      "label": "🌀 Speciale effecten",
+      "sounds": [
+        {
+          "id": "teleport",
+          "prompt": "Teleport: sudden swirling suction whoosh followed by a sharp magical pop",
+          "duration": 1
+        },
+        {
+          "id": "spell_fail",
+          "prompt": "Failed spell: weak sputtering fizzle with a small puff of smoke, slightly comedic",
+          "duration": 1
+        },
+        {
+          "id": "wand_draw",
+          "prompt": "Pulling a wooden magic wand from a robe with a soft magical sparkle",
+          "duration": 1
+        },
+        {
+          "id": "spell_charge",
+          "prompt": "Generic spell charge-up: rising magical hum with swirling sparkles",
+          "duration": 2
+        },
+        {
+          "id": "broom_flight_loop",
+          "prompt": "Flying on a magic broom at high speed, wind rushing past, cloth flapping",
+          "loop": true
+        },
+        {
+          "id": "cauldron_loop",
+          "prompt": "Bubbling cauldron with thick potion, gentle magical shimmer",
+          "loop": true
+        },
+        {
+          "id": "potion_drink",
+          "prompt": "Drinking a potion from a glass bottle followed by a magical sparkle effect",
+          "duration": 2
+        },
+        {
+          "id": "door_open",
+          "prompt": "Heavy old wooden castle door opening slowly with a magical glow sound",
+          "duration": 3
+        },
+        {
+          "id": "book_pages",
+          "prompt": "Flipping pages of an old spell book, dusty paper",
+          "duration": 2
+        },
+        {
+          "id": "spell_learn",
+          "prompt": "Learning a new spell: triumphant magical chime with rising sparkles",
+          "duration": 2
+        },
+        {
+          "id": "item_pickup",
+          "prompt": "Picking up a magic item: short bright sparkle and soft chime",
+          "duration": 0.5
+        }
+      ]
+    }
+  ]
+}
