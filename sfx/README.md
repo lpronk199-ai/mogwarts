@@ -12,6 +12,23 @@ Achter elke prompt wordt automatisch deze toevoeging geplakt:
 Per geluid staat er een `duration` (in seconden) of `"loop": true` (naadloze loop). Die worden als
 `duration_seconds` en `loop` naar de API gestuurd in plaats van in de tekst te staan.
 
+## Gesynthetiseerde versies (zit al in de repo)
+
+Alle 46 geluiden staan al als MP3 in `assets/sfx/`. Ze zijn procedureel gemaakt met
+[`synth.py`](synth.py): elk geluid heeft daar een eigen recept van ruis, oscillatoren, filters en galm.
+Er is geen API of sleutel voor nodig:
+
+```bash
+pip install numpy scipy lameenc
+python3 sfx/synth.py --force          # alles opnieuw renderen
+python3 sfx/synth.py --force fire     # alleen een categorie of een los geluid
+```
+
+Het resultaat is elke keer hetzelfde. Wil je een geluid anders, pas dan het recept (de functie met
+dezelfde naam als het id) aan en render opnieuw. Loops zijn naadloos gemaakt, maar MP3 voegt bij het
+coderen een paar milliseconden stilte toe. In sommige spelers geeft dat een klein tikje op het
+loop-punt. Kies bij problemen OGG of WAV voor de loops.
+
 ## Genereren met ElevenLabs
 
 ```bash
@@ -30,6 +47,7 @@ De bestanden komen in `assets/sfx/<categorie>/<id>.mp3`, bijvoorbeeld `assets/sf
 | `python3 sfx/generate.py --dry-run` | laat zien wat er verstuurd zou worden, zonder API-calls |
 
 Bestanden die al bestaan worden overgeslagen, dus een onderbroken run kun je gewoon opnieuw starten.
+Omdat de gesynthetiseerde versies er al staan, gebruik je de eerste keer `--force` om ze te vervangen.
 Niet tevreden over een geluid? Pas de prompt in `prompts.json` aan en draai het script met `--force <id>`.
 
 ## Een geluid toevoegen
@@ -41,3 +59,4 @@ Voeg een regel toe aan de juiste categorie in `prompts.json`:
 ```
 
 Gebruik `"loop": true` in plaats van `duration` voor achtergrondgeluiden die moeten doorlopen.
+`synth.py` meldt nieuwe ids zonder recept; die kun je met ElevenLabs maken of een eigen recept geven.
