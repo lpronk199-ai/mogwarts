@@ -12,6 +12,7 @@ Beluisteren kan in het soundboard (de categorieën die met "Mogwarts:" beginnen)
 | --- | --- |
 | `audio/*.ogg` | De 8 bestanden die je uploadt: 3 "sheets" met alle korte geluiden en 5 loops |
 | `MogwartsSounds.lua` | ModuleScript die weet waar elk geluid in welk bestand zit, en ze afspeelt |
+| `PROMPT.md` | Een prompt voor de AI-assistent in Studio, die de geluiden in je scripts zet |
 | `scripts/*.lua` | Je eigen scripts uit `mogwarts3.rbxl`, aangevuld met de geluiden |
 
 Roblox beperkt hoeveel audiobestanden je per maand mag uploaden. Daarom staan alle korte geluiden samen in drie
