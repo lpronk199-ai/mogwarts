@@ -8,6 +8,8 @@ Sound Effects API.
     python3 sfx/generate.py --force heal      # regenerate even if the file exists
     python3 sfx/generate.py --dry-run         # show what would be sent, call nothing
 
+Sounds with "variants": N in prompts.json are requested N times (<id>_1.mp3 ... <id>_N.mp3).
+
 Files land in assets/sfx/<category>/<id>.mp3. Uses only the standard library.
 """
 
@@ -106,26 +108,29 @@ def main():
     output_format = manifest["defaults"]["output_format"]
     done = skipped = failed = 0
     for category, sound in sounds:
-        target = OUT_DIR / category / f"{sound['id']}.mp3"
-        rel = target.relative_to(ROOT)
-        if target.exists() and not args.force:
-            skipped += 1
-            continue
-        body = build_request(manifest, sound, args.influence)
-        if args.dry_run:
-            print(f"{rel}\n  {json.dumps(body, ensure_ascii=False)}")
-            continue
-        print(f"-> {rel} ...", end=" ", flush=True)
-        try:
-            audio = generate(api_key, output_format, body)
-        except RuntimeError as err:
-            print(f"FAILED ({err})")
-            failed += 1
-            continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(audio)
-        print(f"ok ({len(audio) // 1024} KB)")
-        done += 1
+        count = sound.get("variants", 1)
+        names = [sound["id"]] if count == 1 else [f"{sound['id']}_{k}" for k in range(1, count + 1)]
+        for name in names:
+            target = OUT_DIR / category / f"{name}.mp3"
+            rel = target.relative_to(ROOT)
+            if target.exists() and not args.force:
+                skipped += 1
+                continue
+            body = build_request(manifest, sound, args.influence)
+            if args.dry_run:
+                print(f"{rel}\n  {json.dumps(body, ensure_ascii=False)}")
+                continue
+            print(f"-> {rel} ...", end=" ", flush=True)
+            try:
+                audio = generate(api_key, output_format, body)
+            except RuntimeError as err:
+                print(f"FAILED ({err})")
+                failed += 1
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(audio)
+            print(f"ok ({len(audio) // 1024} KB)")
+            done += 1
 
     if not args.dry_run:
         print(f"\n{done} generated, {skipped} already present, {failed} failed")

@@ -1,7 +1,8 @@
 # Geluidseffecten
 
-Alle geluidsprompts voor Mogwarts staan in [`prompts.json`](prompts.json), gegroepeerd per categorie:
-voetstappen, vuur, ijs, gif, bliksem, duistere magie, licht, schild/wind/aarde en speciale effecten, plus
+Alle geluidsprompts voor Mogwarts staan in [`prompts.json`](prompts.json), gegroepeerd per categorie.
+De categorieën `game_*` zijn het pakket voor de Roblox-game (zie [`../roblox/README.md`](../roblox/README.md)).
+Daarnaast zijn er de algemene categorieën: voetstappen, vuur, ijs, gif, bliksem, duistere magie, licht, schild/wind/aarde en speciale effecten, plus
 filmische effecten (braams, risers, sub drops, trommels), sfeerloops, wezens en spelmomenten.
 
 Achter elke prompt wordt automatisch deze toevoeging geplakt:
@@ -11,11 +12,13 @@ Achter elke prompt wordt automatisch deze toevoeging geplakt:
 ```
 
 Per geluid staat er een `duration` (in seconden) of `"loop": true` (naadloze loop). Die worden als
-`duration_seconds` en `loop` naar de API gestuurd in plaats van in de tekst te staan.
+`duration_seconds` en `loop` naar de API gestuurd in plaats van in de tekst te staan. Met `"variants": 3`
+krijgt een geluid drie varianten (`<id>_1.mp3` t/m `<id>_3.mp3`), zodat het in de game niet steeds
+hetzelfde klinkt.
 
 ## Gesynthetiseerde versies (zit al in de repo)
 
-Alle 77 geluiden staan al als MP3 in `assets/sfx/`. Ze zijn procedureel gemaakt met
+Alle 124 geluiden staan al als MP3 in `assets/sfx/`. Ze zijn procedureel gemaakt met
 [`synth.py`](synth.py): elk geluid heeft daar een eigen recept van ruis, oscillatoren, filters en galm.
 Er is geen API of sleutel voor nodig:
 
