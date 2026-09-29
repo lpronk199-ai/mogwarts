@@ -1,7 +1,8 @@
 # Geluidseffecten
 
-Alle geluidsprompts voor Mogwarts staan in [`prompts.json`](prompts.json), gegroepeerd per categorie
-(voetstappen, vuur, ijs, gif, bliksem, duistere magie, licht, schild/wind/aarde, speciale effecten).
+Alle geluidsprompts voor Mogwarts staan in [`prompts.json`](prompts.json), gegroepeerd per categorie:
+voetstappen, vuur, ijs, gif, bliksem, duistere magie, licht, schild/wind/aarde en speciale effecten, plus
+filmische effecten (braams, risers, sub drops, trommels), sfeerloops, wezens en spelmomenten.
 
 Achter elke prompt wordt automatisch deze toevoeging geplakt:
 
@@ -14,7 +15,7 @@ Per geluid staat er een `duration` (in seconden) of `"loop": true` (naadloze loo
 
 ## Gesynthetiseerde versies (zit al in de repo)
 
-Alle 46 geluiden staan al als MP3 in `assets/sfx/`. Ze zijn procedureel gemaakt met
+Alle 77 geluiden staan al als MP3 in `assets/sfx/`. Ze zijn procedureel gemaakt met
 [`synth.py`](synth.py): elk geluid heeft daar een eigen recept van ruis, oscillatoren, filters en galm.
 Er is geen API of sleutel voor nodig:
 
@@ -23,6 +24,9 @@ pip install numpy scipy lameenc
 python3 sfx/synth.py --force          # alles opnieuw renderen
 python3 sfx/synth.py --force fire     # alleen een categorie of een los geluid
 ```
+
+Elk geluid gaat aan het eind door dezelfde klankkleuring (`master` in `synth.py`): +6 dB laag onder
+140 Hz, -6 dB hoog boven 4,5 kHz en niets boven 11 kHz, zodat niets schel klinkt.
 
 Het resultaat is elke keer hetzelfde. Wil je een geluid anders, pas dan het recept (de functie met
 dezelfde naam als het id) aan en render opnieuw. Loops zijn naadloos gemaakt, maar MP3 voegt bij het

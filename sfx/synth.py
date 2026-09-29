@@ -200,6 +200,30 @@ def _rbj(kind, f, q):
     return np.array(b) / a0, np.array([1.0, -2 * cw / a0, (1 - alpha) / a0])
 
 
+def shelf(x, kind, f, gain_db, slope=1.0):
+    """RBJ shelving EQ: kind 'low' or 'high', boosting or cutting by gain_db beyond f."""
+    amp = 10 ** (gain_db / 40)
+    w = 2 * np.pi * _clamp(f) / SR
+    cw = np.cos(w)
+    alpha = np.sin(w) / 2 * np.sqrt((amp + 1 / amp) * (1 / slope - 1) + 2)
+    k = 2 * np.sqrt(amp) * alpha
+    sign = 1 if kind == "low" else -1
+    b = [amp * ((amp + 1) - sign * (amp - 1) * cw + k),
+         sign * 2 * amp * ((amp - 1) - sign * (amp + 1) * cw),
+         amp * ((amp + 1) - sign * (amp - 1) * cw - k)]
+    a = [(amp + 1) + sign * (amp - 1) * cw + k,
+         -sign * 2 * ((amp - 1) + sign * (amp + 1) * cw),
+         (amp + 1) + sign * (amp - 1) * cw - k]
+    return signal.lfilter(np.array(b) / a[0], np.array(a) / a[0], x)
+
+
+def master(x):
+    """Final tone shaping for every sound: fuller lows, softer highs."""
+    x = shelf(x, "low", 140, 6.0)
+    x = shelf(x, "high", 4500, -6.0)
+    return lp(x, 11000)
+
+
 def reson(x, f, q):
     b, a = _rbj("bp", f, q)
     return signal.lfilter(b, a, x)
@@ -236,14 +260,38 @@ def echo(x, delay, feedback, lpf=3000.0, taps=6):
     return y
 
 
-def reverb(r, x, size, wet, damp=5000.0, predelay=0.015):
-    """Convolution reverb with a noise tail; highs die out faster than lows. size = RT60 (s)."""
+def impulse(r, size, damp=5000.0, predelay=0.015):
+    """Reverb impulse response: a noise tail whose highs die out faster than its lows. size = RT60 (s)."""
     t = tt(size * 1.2)
     low = lp(noise(r, size * 1.2), 1500) * np.exp(-6.9 * t / size)
     high = hp(lp(noise(r, size * 1.2), damp), 1500) * np.exp(-6.9 * t / (size * 0.45))
     ir = hp(low + 0.8 * high, 100)
-    ir = np.concatenate([np.zeros(n(predelay)), ir / np.sqrt(np.sum(ir ** 2))])
-    return x + wet * signal.fftconvolve(x, ir)[: len(x)]
+    return np.concatenate([np.zeros(n(predelay)), ir / np.sqrt(np.sum(ir ** 2))])
+
+
+def reverb(r, x, size, wet, damp=5000.0, predelay=0.015):
+    return x + wet * signal.fftconvolve(x, impulse(r, size, damp, predelay))[: len(x)]
+
+
+def creverb(r, x, size, wet, damp=5000.0):
+    """Reverb for a loop cycle: the tail wraps around to the start."""
+    ir = impulse(r, size, damp)
+    folded = np.zeros(len(x))
+    for i in range(0, len(ir), len(x)):
+        seg = ir[i:i + len(x)]
+        folded[: len(seg)] += seg
+    return x + wet * np.fft.irfft(np.fft.rfft(x) * np.fft.rfft(folded), len(x))
+
+
+def circ_put(buf, x, at, gain=1.0):
+    """Mix x into a loop cycle starting at `at`, wrapping around the end."""
+    i = int(round(at * SR)) % len(buf)
+    x = gain * x
+    while len(x):
+        j = min(len(buf) - i, len(x))
+        buf[i:i + j] += x[:j]
+        x, i = x[j:], 0
+    return buf
 
 
 ROOMS = {  # RT60, wet, damping
@@ -304,7 +352,7 @@ def sparkles(r, d, rate, lo=3000, hi=10000, tau=(0.03, 0.2), rise=0.0, partials=
     x = np.zeros(n(d))
     for at in events(r, d, rate):
         k = r.uniform(*tau)
-        f = loguniform(r, lo, hi) * 2 ** (rise * at / d)
+        f = loguniform(r, lo, hi) * 0.65 * 2 ** (rise * at / d)
         put(x, tone(f, k * 5, k, partials, attack=0.001), at, r.uniform(0.2, 1.0))
     return x
 
@@ -316,6 +364,12 @@ def bells(r, d, rate, notes, tau=(0.3, 0.8), partials=CHIME):
         k = r.uniform(*tau)
         put(x, tone(hz(r.choice(notes)), k * 4, k, partials, attack=0.004), at, r.uniform(0.3, 1.0))
     return x
+
+
+def body(f, env, harm=0.4):
+    """Warm low tone (fundamental plus octave) under a thin sound; f may be a curve."""
+    f = np.broadcast_to(np.asarray(f, float), env.shape)
+    return drive(osc(f) + harm * osc(f * 2), 1.3) * env
 
 
 def bubble(f0, d, rise=0.6):
@@ -401,6 +455,117 @@ def crack(r, gain=1.0):
     return (x + std1(bp(noise(r, d), 1000, 6000)) * decay(d, 0.015) * 0.4) * gain
 
 
+def brass(freqs, bright, detune=0.003, scoop=0.03):
+    """Brass section: detuned saws that scoop up into pitch, through a lowpass following `bright` (Hz)."""
+    t = np.arange(len(bright)) / SR
+    bend = 1 - scoop * np.exp(-t / 0.06)
+    src = sum(osc(const(len(bright) / SR, f * (1 + k * detune)) * bend, "saw") for f in freqs for k in (-1, 0, 1))
+    return nrm(sweep(src, "lp", bright, 1.0))
+
+
+def horn(midis, dur, release=0.3):
+    """One brass chord or note with a bright attack and a little vibrato on long notes."""
+    ln = dur + release
+    t = tt(ln)
+    bright = expo(ln, (0, 400), (0.04, 3200), (0.3, 1700), (ln, 1000))
+    vib = 1 + 0.004 * np.sin(2 * np.pi * 5.5 * t) * np.clip((t - 0.2) / 0.3, 0, 1)
+    src = sum(osc(hz(m) * (1 + k * 0.003) * vib * (1 - 0.02 * np.exp(-t / 0.05)), "saw")
+              for m in midis for k in (-1, 0, 1))
+    env = lin(ln, (0, 0), (0.02, 1), (0.08, 0.8), (dur, 0.75), (ln, 0))
+    return drive(nrm(sweep(src, "lp", bright, 1.0)), 2.0) * env
+
+
+def drum(r, f0=110, f1=55, tau=0.35, gain=1.0):
+    """Big membrane drum (taiko/timpani): pitched thump, second mode, skin noise and beater."""
+    d = tau * 5
+    x = osc(expo(d, (0, f0), (0.04, f1 * 1.1), (d, f1))) * decay(d, tau, 0.001)
+    x += 0.4 * osc(expo(d, (0, f0 * 1.6), (0.04, f1 * 1.76), (d, f1 * 1.59))) * decay(d, tau * 0.4, 0.001)
+    x += std1(lp(noise(r, d), 900)) * decay(d, 0.04, 0.001) * 0.5
+    x += std1(hp(noise(r, d), 2000)) * decay(d, 0.003) * 0.2
+    return drive(x * gain, 1.5)
+
+
+def choir(r, midis, d, vowel=((800, 6, 1.0), (1150, 8, 0.5), (2900, 12, 0.2))):
+    """Synthetic choir 'aah': detuned saws with vibrato through vocal formants."""
+    t = tt(d)
+    src = np.zeros(n(d))
+    for m in midis:
+        for det in (-0.004, 0.0, 0.004):
+            vib = 1 + 0.004 * np.sin(2 * np.pi * 5 * t + r.uniform(0, 2 * np.pi))
+            src += osc(hz(m) * (1 + det) * vib, "saw")
+    return nrm(formant(src, vowel) + 0.3 * lp(src, 1200) + 0.4 * lp(src, 350))
+
+
+def voice(r, f, formants, breath=0.1, sub=0.0):
+    """Creature voice: a glottal saw following the curve f, shaped by formants."""
+    jitter = 1 + 0.01 * std1(lp(r.standard_normal(len(f)), 25))
+    src = osc(f * jitter, "saw") + (sub * osc(f * 0.5 * jitter, "saw") if sub else 0)
+    src = src + breath * std1(r.standard_normal(len(f)))
+    return nrm(formant(src, formants))
+
+
+def heartbeat(r, gain=1.0):
+    """One 'lub-dub'."""
+    d = 0.6
+    x = np.zeros(n(d))
+    for at, f, g in ((0.0, 55, 1.0), (0.28, 68, 0.7)):
+        beat = body(expo(0.3, (0, f * 1.3), (0.05, f), (0.3, f * 0.9)), decay(0.3, 0.05, 0.008), 0.3)
+        beat += std1(lp(noise(r, 0.3, 2.0), 150)) * decay(0.3, 0.04, 0.005) * 0.4
+        put(x, beat, at, g)
+    return x * gain
+
+
+def big_hit(r, d=2.5):
+    """Dry cinematic impact: sub boom, crack, blast and a metallic clang."""
+    x = np.zeros(n(d))
+    put(x, boom(d, 95, 28, 0.7, 2.5), 0)
+    put(x, nrm(burst(r, 0.05, 0.008, lo=1200)), 0, 0.4)
+    put(x, std1(lp(noise(r, 1.0, 2.0), 600)) * decay(1.0, 0.18, 0.002), 0, 0.8)
+    clang = tone(155, d, 0.9, METAL) + 0.7 * tone(233, d, 0.7, METAL) + 0.4 * tone(412, d, 0.5, METAL)
+    return put(x, drive(nrm(clang), 1.5), 0, 0.4)
+
+
+def riser(r, d):
+    """Tension riser: rising noise, a climbing string chord with faster and faster tremolo, and a sub."""
+    k = lin(d, (0, 0), (d, 1))
+    x = whoosh(r, d, expo(d, (0, 200), (d, 7000)), k ** 2, q=1.5) * 0.5
+    trem = 0.6 + 0.4 * np.sin(2 * np.pi * np.cumsum(4 + 16 * k ** 2) / SR)
+    chord = sum(osc(f * 2 ** k, "saw") for f in (110, 164.8, 220))
+    x += nrm(sweep(chord, "lp", 300 + 4700 * k ** 2, 1.2)) * k ** 1.5 * trem * 0.5
+    x += std1(hp(noise(r, d), 5000)) * k ** 3 * 0.3
+    x += body(55 * 2 ** k, k ** 2, 0.5) * 0.4
+    return x
+
+
+def reverse_crash(r, d):
+    """A crash with its reverb, played backwards so it swells into a hard stop at d."""
+    src = std1(hp(noise(r, 2.5), 3000)) * decay(2.5, 0.5, 0.001) * 0.6
+    src += nrm(tone(420, 2.5, 0.8, METAL)) * 0.3 + boom(2.5, 80, 40, 0.5) * 0.6
+    tail = reverb(r, src, 2.0, 0.6)[: n(d)][::-1]
+    return tail * lin(d, (0, 0), (d, 1)) ** 1.5
+
+
+def hoot(f, d):
+    t = tt(d)
+    fr = f * (1 + 0.04 * np.sin(np.pi * t / d))
+    return (osc(fr) + 0.15 * osc(fr * 2)) * np.sin(np.pi * np.minimum(t / d, 1)) ** 0.7
+
+
+def owl_call(r):
+    x = np.zeros(n(1.6))
+    for at, dur, f in ((0.05, 0.28, 380), (0.5, 0.16, 390), (0.7, 0.16, 390), (0.95, 0.55, 360)):
+        put(x, hoot(f, dur), at)
+        put(x, std1(lp(noise(r, dur), 1500)) * np.sin(np.pi * tt(dur) / dur), at, 0.04)
+    return x
+
+
+def chirp(f, pulses=3, rate=30.0):
+    """Cricket chirp: a few quick pulses of a pure tone."""
+    d = pulses / rate
+    t = tt(d)
+    return osc(const(d, f)) * np.sin(np.pi * ((t * rate) % 1.0)) ** 2
+
+
 # --------------------------------------------------------------------------- footsteps
 
 def step_stone(r, w=1.0):
@@ -420,10 +585,10 @@ def step_stone(r, w=1.0):
 def step_heel(r, w=1.0):
     """Heeled boot on stone: sharp heel click, then the sole taps down."""
     d = 0.3
-    x = std1(hp(noise(r, d), 2500)) * decay(d, 0.0015) * 0.7
-    x += tone(r.uniform(2600, 3400), d, 0.012, METAL, attack=0.0003) * 0.35
-    x += std1(bp(noise(r, d), 300, 2500)) * decay(d, 0.006) * 0.45
-    x += osc(expo(d, (0, 160), (0.04, 110), (d, 110))) * decay(d, 0.012) * 0.35 * w
+    x = std1(hp(noise(r, d), 2000)) * decay(d, 0.0015) * 0.45
+    x += tone(r.uniform(1900, 2500), d, 0.01, METAL, attack=0.0003) * 0.15
+    x += std1(bp(noise(r, d), 250, 2000)) * decay(d, 0.007) * 0.5
+    x += osc(expo(d, (0, 130), (0.05, 85), (d, 85))) * decay(d, 0.02) * 0.65 * w
     toe = std1(bp(noise(r, 0.1), 500, 4000)) * decay(0.1, 0.007) * 0.3
     put(x, toe, r.uniform(0.07, 0.1))
     return x
@@ -629,6 +794,8 @@ def ice_cast(r, d):
     put(x, whoosh(r, 0.4, expo(0.4, (0, 4000), (0.4, 1500)), lin(0.4, (0, 0), (0.05, 1), (0.4, 0)), q=1.5),
         launch, 0.6)
     put(x, shatter(r, 0.5, shards=10, lo=3000, hi=9000, spread=0.05), launch, 0.35)
+    put(x, std1(lp(noise(r, 1.0, 2.0), 200)) * lin(1.0, (0, 0), (0.95, 1), (1.0, 0)), 0, 0.5)
+    put(x, boom(0.6, 90, 45, 0.15, 1.5), launch, 0.7)
     return room(r, x, "hall", 0.2)
 
 
@@ -638,7 +805,8 @@ def ice_impact(r, d):
     x = np.zeros(n(dd))
     put(x, shatter(r, 1.4, shards=55, lo=1800, hi=9500, spread=0.1), 0, 0.9)
     put(x, crackle(r, 0.4, 3000 * decay(0.4, 0.06, 0), 1200, 6000), 0, 0.8)
-    put(x, boom(0.3, 140, 70, 0.04, 1.2), 0, 0.5)
+    put(x, boom(0.6, 130, 50, 0.12, 1.6), 0, 1.0)
+    put(x, std1(lp(noise(r, 0.5, 2.0), 250)) * decay(0.5, 0.1, 0.002), 0, 0.5)
     x += std1(hp(noise(r, dd), 4500)) * decay(dd, 0.45, 0.01) * 0.25
     return room(r, x, "hall", 0.2)
 
@@ -646,14 +814,16 @@ def ice_impact(r, d):
 @sfx()
 def ice_freeze(r, d):
     x = np.zeros(n(d + 0.8))
-    put(x, crackle(r, d, lin(d, (0, 4), (2.3, 90), (d, 8)), 1200, 8000) * lin(d, (0, 0.4), (2.3, 1), (d, 0.3)), 0, 0.8)
+    put(x, crackle(r, d, lin(d, (0, 4), (2.3, 90), (d, 8)), 800, 6000) * lin(d, (0, 0.4), (2.3, 1), (d, 0.3)), 0, 0.8)
     put(x, sparkles(r, d, lin(d, (0, 1), (d, 15)), 4000, 10000, (0.01, 0.04)), 0, 0.25)
     for at in np.sort(r.uniform(0.2, d - 0.8, 5)):
         c = creak(r, 0.25, lin(0.25, (0, r.uniform(180, 260)), (0.25, r.uniform(80, 140))),
                   [(r.uniform(1800, 2600), 1), (r.uniform(3500, 4500), 0.5)], q=18)
         put(x, c * lin(0.25, (0, 0), (0.03, 1), (0.25, 0)), at, 0.3 * (0.5 + at / d))
-    put(x, std1(hp(noise(r, d), 5000)) * lin(d, (0, 0.05), (2.3, 0.3), (d, 0.05)), 0, 0.25)
-    put(x, std1(lp(noise(r, d, 2.0), 150)) * lin(d, (0, 0), (2.3, 0.3), (d, 0)), 0, 0.4)
+    put(x, std1(hp(noise(r, d), 5000)) * lin(d, (0, 0.05), (2.3, 0.3), (d, 0.05)), 0, 0.12)
+    put(x, std1(lp(noise(r, d, 2.0), 150)) * lin(d, (0, 0), (2.3, 0.3), (d, 0)), 0, 0.7)
+    groan = creak(r, d, lin(d, (0, 8), (d, 14)), [(160, 1), (310, 0.6)], q=8)
+    put(x, groan * lin(d, (0, 0), (1.0, 0.6), (2.3, 1), (d, 0)), 0, 0.35)
     return room(r, x, "small", 0.15)
 
 
@@ -662,6 +832,7 @@ def ice_break_free(r, d):
     x = np.zeros(n(d + 0.8))
     for at, g in [(0.08, 0.35), (0.3, 0.5), (0.46, 0.6), (0.58, 0.75), (0.66, 0.85)]:
         put(x, crack(r, g), at)
+        put(x, boom(0.4, 110, 50, 0.08, 1.5), at, 0.6 * g)
     stress = creak(r, 0.6, lin(0.6, (0, 40), (0.6, 120)), [(900, 1), (1700, 0.6), (3100, 0.3)], q=15)
     put(x, stress * lin(0.6, (0, 0), (0.1, 0.6), (0.6, 1)), 0.1, 0.25)
     brk = 0.72
@@ -821,6 +992,7 @@ def heal(r, d):
         put(x, tone(hz(m), 1.6, 0.6, CHIME, attack=0.012), 0.02 + i * 0.16, 0.5 + i * 0.05)
     t = tt(d)
     hum = osc(const(d, 261.6)) + 0.6 * osc(const(d, 392.0)) + 0.4 * osc(const(d, 523.25 * 1.003))
+    hum += 0.8 * osc(const(d, 130.8)) + 0.5 * osc(const(d, 65.4))
     put(x, hum * (1 + 0.15 * np.sin(2 * np.pi * 4 * t)) * lin(d, (0, 0), (0.35, 1), (1.5, 0.8), (d, 0)), 0, 0.18)
     put(x, sparkles(r, 1.6, 12, 4000, 9000, (0.05, 0.2), rise=0.5), 0.1, 0.15)
     return room(r, x, "castle", 0.35)
@@ -835,6 +1007,8 @@ def light_cast(r, d):
     put(x, sparkles(r, 0.6, 200 * decay(0.6, 0.12, 0), 3500, 11000, (0.03, 0.15)), burst_at, 0.5)
     put(x, tone(1318.5, 1.4, 0.45, CHIME), burst_at, 0.6)
     put(x, tone(1975.5, 1.4, 0.35, CHIME), burst_at, 0.35)
+    put(x, body(130.8, decay(1.4, 0.5, 0.02)), burst_at, 0.35)
+    put(x, boom(0.4, 100, 60, 0.1), burst_at, 0.4)
     return room(r, x, "hall", 0.3)
 
 
@@ -847,9 +1021,10 @@ def revive(r, d):
         for det in (-0.004, 0.0, 0.004):
             vib = 1 + 0.004 * np.sin(2 * np.pi * 5 * t + r.uniform(0, 2 * np.pi))
             src += osc(hz(m) * (1 + det) * vib, "saw")
-    choir = formant(src, [(800, 6, 1.0), (1150, 8, 0.5), (2900, 12, 0.2)]) + 0.3 * lp(src, 1200)
+    choir = formant(src, [(800, 6, 1.0), (1150, 8, 0.5), (2900, 12, 0.2)]) + 0.3 * lp(src, 1200) + 0.4 * lp(src, 350)
     choir = nrm(sweep(choir, "lp", expo(d, (0, 400), (1.9, 5000), (d, 1500)), 0.7))
     put(x, choir * lin(d, (0, 0), (1.9, 1), (d, 0)) ** 1.2, 0, 0.5)
+    put(x, body(65.4, lin(d, (0, 0), (1.9, 1), (d, 0)) ** 1.5), 0, 0.3)
     put(x, bells(r, d, lin(d, (0, 2), (1.9, 25), (d, 0)), [84, 86, 88, 91, 93, 96, 98, 100], (0.2, 0.6)), 0, 0.3)
     put(x, tone(hz(96), 1.4, 0.4, CHIME), 1.9, 0.4)
     put(x, tone(hz(100), 1.4, 0.35, CHIME), 1.9, 0.3)
@@ -901,8 +1076,9 @@ def shield_break(r, d):
     f = expo(k, (0, 98), (k, 45))
     hum = osc(f) + 0.5 * osc(f * 2) + 0.3 * osc(f * 3)
     flutter = 1 + 0.5 * np.sign(np.sin(2 * np.pi * np.cumsum(lin(k, (0, 20), (k, 5))) / SR))
-    put(x, nrm(hum) * flutter * lin(k, (0, 1), (k, 0)) ** 1.5, 0, 0.4)
+    put(x, nrm(hum) * flutter * lin(k, (0, 1), (k, 0)) ** 1.5, 0, 0.7)
     put(x, whoosh(r, 1.0, expo(1.0, (0, 4000), (1.0, 300)), decay(1.0, 0.3), q=2.0), 0, 0.3)
+    put(x, boom(0.8, 80, 35, 0.2, 1.8), 0, 0.8)
     return room(r, x, "hall", 0.25)
 
 
@@ -955,7 +1131,8 @@ def teleport(r, d):
     put(x, osc(expo(pop, (0, 250), (pop, 1600)) * (1 + 0.03 * np.sin(2 * np.pi * vib_rate))) * rise, 0, 0.15)
     put(x, osc(expo(0.06, (0, 1400), (0.06, 220))) * decay(0.06, 0.018, 0.0005), pop, 0.9)
     put(x, nrm(burst(r, 0.02, 0.0015, lo=2000)), pop, 0.6)
-    put(x, boom(0.15, 150, 80, 0.03), pop, 0.4)
+    put(x, boom(0.4, 120, 50, 0.08, 1.6), pop, 0.9)
+    put(x, body(expo(pop, (0, 40), (pop, 90)), rise), 0, 0.5)
     put(x, sparkles(r, 0.3, 90 * decay(0.3, 0.08, 0), 3500, 10000), pop, 0.35)
     return room(r, x, "hall", 0.2)
 
@@ -990,6 +1167,8 @@ def wand_draw(r, d):
         0.22, 0.06)
     w = 0.18
     put(x, whoosh(r, w, expo(w, (0, 1200), (w, 3500)), lin(w, (0, 0), (0.08, 1), (w, 0)), q=1.2), 0.48, 0.3)
+    put(x, std1(lp(noise(r, 0.3, 2.0), 300)) * lin(0.3, (0, 0), (0.12, 1), (0.3, 0)), 0.42, 0.4)
+    put(x, body(130.8, decay(0.5, 0.2, 0.01)), 0.55, 0.25)
     put(x, sparkles(r, 0.4, 50 * decay(0.4, 0.12, 0), 4000, 10000), 0.55, 0.35)
     put(x, tone(hz(100), 0.6, 0.25, CHIME), 0.56, 0.2)
     return room(r, x, "small", 0.12)
@@ -1000,7 +1179,7 @@ def spell_charge(r, d):
     x = np.zeros(n(d + 0.4))
     k = lin(d, (0, 0), (d, 1))
     f = expo(d, (0, 110), (d, 330)) * (1 + (0.003 + 0.02 * k) * np.sin(2 * np.pi * np.cumsum(5 + 4 * k) / SR))
-    hum = osc(f, "saw") * 0.5 + osc(f) * 0.8 + osc(f * 1.5) * 0.3
+    hum = osc(f, "saw") * 0.5 + osc(f) * 0.8 + osc(f * 1.5) * 0.3 + osc(f / 2) * 0.7
     put(x, nrm(sweep(hum, "lp", 300 + 3500 * k ** 1.3, 1.5)) * (0.15 + 0.85 * k), 0, 0.6)
     fc = expo(d, (0, 500), (d, 3000)) * (1 + 0.3 * np.sin(2 * np.pi * np.cumsum(2 + 8 * k) / SR))
     put(x, std1(sweep(noise(r, d, 1.0), "bp", fc, 4)) * k, 0, 0.2)
@@ -1081,7 +1260,8 @@ def book_pages(r, d):
     for at in (0.08, 0.68 + r.uniform(-0.03, 0.03), 1.25 + r.uniform(-0.03, 0.03)):
         p = 0.4
         env = lin(p, (0, 0), (0.05, 0.4), (0.25, 1), (0.3, 0.3), (p, 0))
-        put(x, crackle(r, p, 900 * env, 2000, 10000), at, 0.6)
+        put(x, crackle(r, p, 900 * env, 1500, 7000), at, 0.6)
+        put(x, std1(lp(noise(r, 0.15, 2.0), 250)) * decay(0.15, 0.03, 0.01), at + 0.25, 0.6)
         put(x, std1(bp(noise(r, p, 0.5), 1500, 8000)) * env, at, 0.25)
         put(x, std1(bp(noise(r, 0.06), 600, 4000)) * decay(0.06, 0.01), at + 0.27, 0.5)
     x += std1(hp(noise(r, d + 0.4), 6000)) * 0.015
@@ -1099,6 +1279,8 @@ def spell_learn(r, d):
     k = 1.6
     brass = sum(osc(const(k, hz(m)), "saw") for m in (48, 52, 55, 60))
     put(x, lp(brass, 2000) * lin(k, (0, 0), (0.05, 1), (k, 0)) ** 1.5, chord, 0.15)
+    put(x, body(65.4, lin(k, (0, 0), (0.05, 1), (k, 0)) ** 1.5), chord, 0.3)
+    put(x, boom(0.8, 90, 55, 0.25, 1.4), chord, 0.6)
     put(x, sparkles(r, 1.4, lin(1.4, (0, 20), (0.6, 70), (1.4, 5)), 3000, 9000, rise=1.0), 0, 0.3)
     return room(r, x, "castle", 0.35)
 
@@ -1108,8 +1290,426 @@ def item_pickup(r, d):
     x = np.zeros(n(d + 0.6))
     put(x, tone(hz(88), 0.5, 0.18, CHIME), 0, 0.5)
     put(x, tone(hz(95), 0.5, 0.22, CHIME), 0.06, 0.5)
+    put(x, body(261.6, decay(0.5, 0.15, 0.005)) + body(130.8, decay(0.5, 0.12, 0.005)), 0, 0.3)
     put(x, sparkles(r, 0.25, 120 * decay(0.25, 0.07, 0), 5000, 11000, (0.02, 0.08)), 0, 0.35)
     return room(r, x, "hall", 0.15)
+
+
+# --------------------------------------------------------------------------- cinematic
+
+@sfx()
+def cine_braam(r, d):
+    x = np.zeros(n(d + 1.5))
+    t = tt(d)
+    env = lin(d, (0, 0), (0.03, 1), (1.0, 0.85), (d, 0))
+    bright = expo(d, (0, 150), (0.08, 2600), (1.2, 900), (d, 250))
+    blast = drive(brass([hz(m) for m in (24, 36, 43, 48, 51)], bright), 3.5) * env
+    put(x, blast * (1 + 0.15 * np.sin(2 * np.pi * 31 * t)), 0, 0.8)
+    put(x, body(32.7, env ** 1.3, 0.5), 0, 0.6)
+    put(x, std1(lp(noise(r, 0.6, 2.0), 400)) * decay(0.6, 0.12, 0.005), 0, 0.5)
+    put(x, boom(1.5, 70, 30, 0.4, 2.0), 0, 0.6)
+    return room(r, x, "castle", 0.35)
+
+
+@sfx()
+def cine_hit(r, d):
+    x = fit(big_hit(r, d), n(d + 2.0))
+    return reverb(r, x, 3.5, 0.5, 3500)
+
+
+@sfx()
+def cine_sub_drop(r, d):
+    x = np.zeros(n(d + 0.5))
+    env = lin(d, (0, 0), (0.01, 1), (1.8, 0.7), (d, 0))
+    put(x, body(expo(d, (0, 110), (1.8, 30), (d, 26)), env, 0.5), 0)
+    put(x, std1(lp(noise(r, d, 2.0), 90)) * env * wobble(r, d, 4, 0.4), 0, 0.5)
+    put(x, boom(0.4, 150, 70, 0.05), 0, 0.5)
+    put(x, nrm(burst(r, 0.03, 0.004, lo=800)), 0, 0.2)
+    return room(r, x, "hall", 0.12)
+
+
+@sfx()
+def cine_riser(r, d):
+    return room(r, fit(riser(r, d), n(d + 0.5)), "hall", 0.2)
+
+
+@sfx()
+def cine_build_hit(r, d):
+    x = np.zeros(n(d + 2.0))
+    hit = 3.2
+    put(x, room(r, riser(r, hit), "hall", 0.2), 0)
+    put(x, reverb(r, big_hit(r, 3.0), 3.5, 0.5, 3500), hit + 0.04)
+    return x
+
+
+@sfx()
+def cine_reverse_swell(r, d):
+    x = np.zeros(n(d + 0.3))
+    stop = 1.85
+    put(x, reverse_crash(r, stop), 0)
+    put(x, nrm(burst(r, 0.01, 0.001, hi=3000)), stop, 0.3)
+    return x
+
+
+@sfx()
+def cine_whoosh_by(r, d):
+    t = tt(d)
+    c = 1.0
+    prox = 1 / (1 + ((t - c) / 0.22) ** 2)
+    fc = 250 + 1600 * prox * np.where(t < c, 1.0, 0.7)
+    x = std1(sweep(noise(r, d, 1.0), "bp", fc, 0.9)) * prox
+    x += std1(lp(noise(r, d, 2.0), 150)) * prox * 0.8
+    x += body(140 * (1 + 0.12 * np.tanh(-(t - c) / 0.1)), prox ** 1.5, 0.5) * 0.5
+    return room(r, fit(x, n(d + 0.5)), "hall", 0.15)
+
+
+@sfx()
+def cine_slowmo(r, d):
+    src_d = 2.0
+    src = crackle(r, src_d, 30) * 0.4
+    src += whoosh(r, src_d, 800 * (1 + 0.5 * np.sin(2 * np.pi * 1.5 * tt(src_d))), 0.6, q=1.0) * 0.5
+    put(src, tone(880, 1.5, 0.5, METAL), 0.1, 0.3)
+    for at in (0.05, 0.6, 1.1):
+        put(src, drum(r, 120, 60, 0.3), at, 0.6)
+    rate = lin(d, (0, 1.0), (1.0, 0.3), (d, 0.25))
+    y = np.interp(np.cumsum(rate), np.arange(len(src)), src, right=0.0)
+    x = sweep(y, "lp", expo(d, (0, 8000), (1.0, 900), (d, 500)), 0.8)
+    x += whoosh(r, d, expo(d, (0, 600), (d, 120)), lin(d, (0, 0), (0.3, 1), (d, 0.3)), q=0.8) * 0.5
+    x += body(expo(d, (0, 90), (1.2, 38), (d, 36)), lin(d, (0, 0), (0.2, 1), (d, 0.2)), 0.5) * 0.6
+    x *= lin(d, (0, 1), (1.4, 1), (d, 0.35))
+    return room(r, fit(x, n(d + 1.0)), "castle", 0.4)
+
+
+@sfx()
+def cine_shellshock(r, d):
+    x = np.zeros(n(d + 0.8))
+    blast = boom(1.5, 90, 30, 0.4, 2.5) + std1(lp(noise(r, 1.5, 2.0), 350)) * decay(1.5, 0.35, 0.002) * 0.8
+    put(x, lp(blast, 400), 0)
+    put(x, osc(const(d, 3700)) * lin(d, (0, 0), (0.15, 1), (2.5, 0.7), (d, 0)), 0, 0.1)
+    put(x, std1(lp(noise(r, d, 1.0), 300)) * wobble(r, d, 1, 0.5) * lin(d, (0, 0), (0.5, 1), (d, 0.6)), 0, 0.25)
+    for at in (1.3, 2.4, 3.4):
+        put(x, heartbeat(r), at, 0.7)
+    return room(r, x, "small", 0.2)
+
+
+@sfx()
+def cine_war_drums(r, d):
+    x = np.zeros(n(d + 2.0))
+    pattern = [(0.0, 1), (0.5, 0.7), (1.0, 1), (1.25, 0), (1.5, 0.9), (2.0, 1), (2.5, 0.7),
+               (2.75, 0), (2.875, 0), (3.0, 1)]
+    for at, accent in pattern:
+        if accent:
+            put(x, drum(r, r.uniform(100, 110), 50, 0.4), at, accent)
+        else:
+            put(x, drum(r, 190, 110, 0.18), at, 0.55)
+    return reverb(r, x, 2.5, 0.45, 4000)
+
+
+@sfx()
+def cine_horror_stinger(r, d):
+    x = np.zeros(n(d + 1.0))
+    hit = 0.02
+    put(x, boom(1.5, 80, 35, 0.35, 2.2), hit, 0.9)
+    put(x, nrm(burst(r, 0.05, 0.006, lo=600)), hit, 0.4)
+    k = 1.6
+    t = tt(k)
+    bend = 1 + 0.06 * lin(k, (0, 0), (k, 1))
+    cluster = sum(osc(const(k, f) * bend * (1 + 0.006 * np.sin(2 * np.pi * 11 * t + i)), "saw")
+                  for i, f in enumerate((440, 466.2, 493.9, 523.3)))
+    screech = nrm(sweep(cluster, "bp", 1800, 0.9) + 0.4 * lp(cluster, 1200))
+    screech += std1(bp(noise(r, k), 1500, 5000)) * 0.15
+    env = lin(k, (0, 0), (0.02, 1), (0.3, 0.7), (k, 0))
+    put(x, screech * env * (1 + 0.3 * np.sin(2 * np.pi * 12 * t)), hit, 0.6)
+    low = lp(osc(const(k, 55), "saw") + osc(const(k, 58.3), "saw"), 400)
+    put(x, nrm(low) * env, hit, 0.5)
+    return room(r, x, "castle", 0.45)
+
+
+@sfx(peak=-3, loop=4.0)
+def cine_heartbeat_loop(r, d, length):
+    x = std1(lp(noise(r, d, 2.0), 120)) * wobble(r, d, 0.3, 0.3) * 0.1
+    cycle = np.zeros(n(length))
+    for k in range(4):
+        circ_put(cycle, heartbeat(r), k * length / 4, 2.5)
+    t = tt(length)
+    drone = sum(g * osc(const(length, snap(f, length))) for f, g in ((55, 1), (55.5, 0.7), (82.4, 0.35)))
+    drone *= 0.75 + 0.25 * np.sin(2 * np.pi * snap(0.25, length) * t)
+    return room(r, x, "small", 0.1), creverb(r, cycle, 0.6, 0.2) + drone * 0.18
+
+
+def clock_tick(r, high):
+    d = 0.15
+    x = tone(2100 if high else 1600, d, 0.012, METAL, attack=0.0003) * 0.4
+    x += nrm(burst(r, d, 0.0015, lo=1500, hi=6000)) * 0.5
+    x += nrm(reson(noise(r, d) * decay(d, 0.002), 900 if high else 700, 8)) * 0.5
+    return x + osc(const(d, 180)) * decay(d, 0.015, 0.001) * 0.3
+
+
+@sfx(peak=-3, loop=4.0)
+def cine_clock_loop(r, d, length):
+    cycle = np.zeros(n(length))
+    for k in range(8):
+        circ_put(cycle, clock_tick(r, k % 2 == 0), k * length / 8)
+    t = tt(length)
+    pad = sum(osc(const(length, snap(f, length)), "saw") for f in (65.4, 65.8, 77.8, 98.0, 98.5))
+    pad = lp(np.tile(pad, 3), 500)[len(pad): 2 * len(pad)]
+    pad = nrm(pad) * (0.6 + 0.4 * np.sin(2 * np.pi * snap(0.25, length) * t))
+    bed = std1(lp(noise(r, d, 1.0), 400)) * 0.05
+    return bed, creverb(r, cycle, 0.5, 0.15) + pad * 0.35
+
+
+# --------------------------------------------------------------------------- ambience
+
+@sfx(peak=-5, loop=8.0)
+def amb_castle_hall(r, d, length):
+    x = std1(sweep(noise(r, d, 1.0), "bp", 450 * wobble(r, d, 0.15, 0.35), 2.0)) * wobble(r, d, 0.2, 0.5) * 0.35
+    x += std1(sweep(noise(r, d), "bp", 900 * wobble(r, d, 0.1, 0.1), 14)) * wobble(r, d, 0.25, 0.8) * 0.06
+    x += std1(lp(noise(r, d, 2.0), 200)) * 0.35
+    far = np.zeros(n(d))
+    for at in events(r, d, 0.35):
+        kind = r.integers(3)
+        if kind == 0:
+            ev = fit(wood_body(r), n(0.4)) + boom(0.4, 90, 50, 0.08) * 0.8
+        elif kind == 1:
+            ev = step_stone(r, 1.0)
+        else:
+            ev = bubble(r.uniform(900, 1600), 0.03, 1.5)
+        put(far, lp(fit(ev, n(0.5)), 1500), at, r.uniform(0.1, 0.3))
+    return room(r, x, "castle", 0.25) + reverb(r, far, 3.0, 1.5, 3000) * 0.5
+
+
+@sfx(peak=-5, loop=8.0)
+def amb_storm(r, d, length):
+    x = crackle(r, d, 2500, 600, 7000, power=3) * 0.4
+    x += std1(bp(noise(r, d, 1.0), 400, 6000)) * 0.25
+    x += crackle(r, d, 40, 300, 3000, power=1.5) * 0.3
+    x += std1(lp(noise(r, d, 2.0), 100)) * 0.3
+    for at, g in ((1.2, 1.8), (5.3, 2.6)):
+        put(x, thunder(r, 3.5, 160, 1.6), at + 1.0, g)
+    return room(r, x, "hall", 0.1)
+
+
+@sfx(peak=-5, loop=8.0)
+def amb_forest_night(r, d, length):
+    gust = wobble(r, d, 0.15, 0.6)
+    x = std1(sweep(noise(r, d, 1.0), "bp", 700 * wobble(r, d, 0.12, 0.3), 0.8)) * gust * 0.3
+    x += crackle(r, d, 300 * gust, 1500, 6000, power=3) * 0.15
+    x += std1(lp(noise(r, d, 2.0), 150)) * 0.2
+    put(x, lp(reverb(r, fit(owl_call(r), n(3.0)), 1.4, 0.5), 2500), 3.5, 0.25)
+    cycle = np.zeros(n(length))
+    for f, period, pulses, offset in ((3800, 0.5, 3, 0.0), (4300, 0.8, 4, 0.23)):
+        period = length / round(length / period)
+        for k in range(int(round(length / period))):
+            circ_put(cycle, chirp(f, pulses), offset + k * period)
+    return room(r, x, "outdoor", 0.1), creverb(r, cycle, 0.8, 0.3) * 0.06
+
+
+@sfx(peak=-5, loop=8.0)
+def amb_dungeon(r, d, length):
+    x = std1(sweep(noise(r, d, 1.0), "bp", 260 * wobble(r, d, 0.1, 0.25), 6)) * wobble(r, d, 0.2, 0.5) * 0.25
+    x += std1(lp(noise(r, d, 2.0), 100)) * 0.3
+    wet = np.zeros(n(d))
+    for at in events(r, d, 0.9):
+        put(wet, bubble(r.uniform(900, 1800), 0.03, 1.5) + nrm(burst(r, 0.03, 0.001, lo=2000)) * 0.2, at,
+            r.uniform(0.2, 0.6))
+    for at in events(r, d, 0.12):
+        for k in range(int(r.integers(4, 9))):
+            link = tone(r.uniform(1200, 3500), 0.3, r.uniform(0.02, 0.06), METAL, attack=0.0005)
+            put(wet, lp(link, 3000), at + r.uniform(0, 0.4), r.uniform(0.05, 0.15))
+    x += reverb(r, wet, 2.8, 1.2, 3500)
+    t = tt(length)
+    drone = sum(g * osc(const(length, snap(f, length))) for f, g in ((55, 1), (55.4, 0.8), (110, 0.3)))
+    drone *= 0.7 + 0.3 * np.sin(2 * np.pi * snap(0.125, length) * t)
+    return x, drone * 0.15
+
+
+@sfx(peak=-5, loop=8.0)
+def amb_fireplace(r, d, length):
+    x = roar(r, d, 500, 3, 0.35) * 0.45
+    x += crackle(r, d, 14, 800, 6000, power=2) * 0.6
+    x += crackle(r, d, 3, 300, 2500, power=1.2) * 0.4
+    for at in events(r, d, 0.12):
+        put(x, fit(wood_body(r, 0.6), n(0.5)) + crackle(r, 0.5, 200 * decay(0.5, 0.1, 0), 800, 5000), at, 0.3)
+    x += std1(bp(noise(r, d), 2000, 6000)) * wobble(r, d, 4, 0.4) * 0.04
+    return room(r, x, "wood", 0.15)
+
+
+@sfx(peak=-5, loop=8.0)
+def amb_magic(r, d, length):
+    x = bells(r, d, 0.7, [74, 78, 81, 85, 86, 90], (0.6, 1.2)) * 0.15
+    x += sparkles(r, d, 2.5, 2500, 7000, (0.1, 0.3)) * 0.1
+    x += std1(bp(noise(r, d), 2000, 6000)) * wobble(r, d, 0.2, 0.6) * 0.03
+    three = 3 * length
+    t3 = tt(three)
+    pad = sum(g * (osc(const(three, snap(f, length)), "saw") + osc(const(three, snap(f * 1.003, length)), "saw"))
+              for f, g in ((73.4, 0.8), (146.8, 1.0), (220, 0.8), (329.6, 0.6), (415.3, 0.4)))
+    cutoff = 700 + 450 * np.sin(2 * np.pi * snap(0.125, length) * t3)
+    pad = sweep(pad, "lp", cutoff, 1.3)[n(length): 2 * n(length)]
+    return room(r, x, "castle", 0.5), nrm(pad) * 0.25
+
+
+# --------------------------------------------------------------------------- creatures
+
+@sfx()
+def dragon_roar(r, d):
+    x = np.zeros(n(d + 1.2))
+    k = 2.8
+    f = expo(k, (0, 55), (0.25, 95), (1.2, 85), (2.2, 70), (k, 50))
+    rate = 28 + 10 * std1(lp(r.standard_normal(n(k)), 3))
+    growl = 1 + 0.6 * np.sin(2 * np.pi * np.cumsum(rate) / SR)
+    env = lin(k, (0, 0), (0.25, 1), (1.8, 0.85), (k, 0))
+    v = voice(r, f, [(550, 3, 1.0), (900, 4, 0.6), (2300, 6, 0.2)], breath=0.6, sub=0.8)
+    put(x, drive(nrm(v * growl), 3.0) * env, 0, 0.8)
+    put(x, std1(bp(noise(r, k, 1.0), 200, 2500)) * env * wobble(r, k, 20, 0.6), 0, 0.3)
+    put(x, body(f * 0.5, env, 0.3), 0, 0.5)
+    return room(r, x, "castle", 0.35)
+
+
+@sfx()
+def dragon_wings(r, d):
+    x = np.zeros(n(d + 0.6))
+    for at in (0.1, 0.75, 1.4):
+        k = 0.45
+        shape = lin(k, (0, 0), (0.12, 1), (k, 0))
+        air = std1(sweep(noise(r, k, 1.5), "lp", expo(k, (0, 150), (0.12, 900), (k, 200)), 1.0)) * shape
+        put(x, air, at)
+        put(x, std1(bp(noise(r, 0.1), 250, 1800)) * decay(0.1, 0.02, 0.002), at + 0.1, 0.7)
+        put(x, body(45, shape), at, 0.4)
+    return room(r, x, "hall", 0.15)
+
+
+@sfx()
+def ghost_wail(r, d):
+    k = 2.8
+    t = tt(k)
+    f = expo(k, (0, 480), (0.6, 640), (1.6, 560), (2.2, 700), (k, 380)) * (1 + 0.035 * np.sin(2 * np.pi * 4.2 * t))
+    v = osc(f) + 0.3 * osc(f * 2) + 0.15 * osc(f * 3) + 0.4 * osc(f * 1.012)
+    v = nrm(v) + 0.5 * nrm(formant(osc(f, "saw"), [(350, 5, 1.0), (800, 7, 0.4)]))
+    env = lin(k, (0, 0), (0.5, 1), (2.2, 0.8), (k, 0))
+    x = nrm(v) * env + std1(bp(noise(r, k), 600, 2500)) * wobble(r, k, 5, 0.7) * env * 0.15
+    x += body(f / 4, env * 0.6, 0.3) * 0.25
+    return room(r, echo(fit(x, n(d + 1.5)), 0.33, 0.45, 2000), "castle", 0.6)
+
+
+@sfx()
+def owl_hoot(r, d):
+    x = fit(owl_call(r), n(d + 1.2))
+    return reverb(r, x, 1.4, 0.35, 4000)
+
+
+@sfx()
+def wolf_howl(r, d):
+    k = 3.6
+    t = tt(k)
+    f = expo(k, (0, 300), (0.5, 540), (2.4, 560), (3.1, 470), (k, 380)) * (1 + 0.012 * np.sin(2 * np.pi * 5 * t))
+    v = osc(f) + 0.35 * osc(f * 2) + 0.12 * osc(f * 3)
+    v = nrm(v) + 0.4 * nrm(formant(osc(f, "saw"), [(700, 4, 1.0), (1200, 6, 0.4)]))
+    env = lin(k, (0, 0), (0.3, 1), (2.8, 0.9), (k, 0))
+    x = nrm(v) * env + std1(bp(noise(r, k), 800, 3000)) * env * 0.08 + body(f / 2, env * 0.5, 0.3) * 0.2
+    return reverb(r, echo(fit(x, n(d + 2.0)), 0.45, 0.3, 2500), 2.8, 0.45, 4000)
+
+
+@sfx()
+def bats_swarm(r, d):
+    x = np.zeros(n(d + 0.5))
+    for _ in range(14):
+        c, w = r.uniform(0.4, 2.4), r.uniform(0.3, 0.6)
+        bd = 2 * w
+        tb = tt(bd)
+        prox = np.sin(np.pi * tb / bd) ** 2
+        flutter = (0.5 + 0.5 * np.sin(2 * np.pi * r.uniform(11, 17) * tb)) ** 4
+        put(x, std1(bp(noise(r, bd), 700, 3500)) * flutter * prox, c - w, r.uniform(0.2, 0.5))
+        for at in events(r, bd, 3 * prox):
+            squeak = osc(expo(0.02, (0, 7500), (0.02, 5200))) * np.sin(np.pi * tt(0.02) / 0.02)
+            put(x, squeak, c - w + at, 0.08 * r.uniform(0.5, 1.0))
+    x += fit(std1(lp(noise(r, d, 1.0), 600)) * lin(d, (0, 0), (1.2, 1), (d, 0)), len(x)) * 0.15
+    return room(r, x, "hall", 0.15)
+
+
+# --------------------------------------------------------------------------- game moments
+
+@sfx()
+def boss_appears(r, d):
+    x = np.zeros(n(d + 1.5))
+    put(x, big_hit(r), 0, 0.9)
+    env = lin(d, (0, 0), (0.02, 1), (1.5, 0.8), (d, 0))
+    put(x, drive(brass([hz(m) for m in (36, 43, 48, 51)], expo(d, (0, 200), (0.1, 1800), (d, 300))), 3.0) * env, 0,
+        0.55)
+    put(x, choir(r, [48, 51, 55, 60], d) * lin(d, (0, 0), (0.4, 0.6), (1.6, 1), (d, 0)), 0, 0.35)
+    for at in (0, 1.0, 1.5, 2.0, 2.5, 3.0):
+        put(x, drum(r, 100, 48, 0.4), at, 0.8)
+    t = tt(d)
+    low = nrm(lp(osc(const(d, 65.4), "saw") + osc(const(d, 69.3), "saw"), 500))
+    put(x, low * (0.6 + 0.4 * np.sin(2 * np.pi * 12 * t)) * env, 0, 0.2)
+    return room(r, x, "castle", 0.4)
+
+
+@sfx()
+def victory_fanfare(r, d):
+    x = np.zeros(n(d + 1.5))
+    for at, midis, dur in ((0.0, [67], 0.11), (0.13, [67], 0.11), (0.26, [67], 0.11), (0.40, [72], 0.34),
+                           (0.78, [76], 0.24), (1.05, [79], 0.24), (1.32, [60, 64, 67, 72, 76], 2.2)):
+        put(x, horn(midis, dur), at, 0.5)
+    for at in (0.40, 1.32):
+        put(x, drum(r, 95, 70, 0.5), at, 0.8)
+    crash = std1(hp(noise(r, 2.5), 3000)) * decay(2.5, 0.5, 0.003) * 0.22 + tone(420, 2.5, 0.8, METAL) * 0.1
+    put(x, crash, 1.32)
+    put(x, body(65.4, lin(2.5, (0, 0), (0.03, 1), (2.2, 0.7), (2.5, 0))), 1.32, 0.4)
+    put(x, sparkles(r, 1.6, lin(1.6, (0, 40), (1.6, 0)), 3000, 9000), 1.35, 0.2)
+    return room(r, x, "hall", 0.35)
+
+
+@sfx()
+def game_over(r, d):
+    x = np.zeros(n(d + 1.5))
+    for at, m, dur in ((0.0, 67, 0.4), (0.45, 63, 0.4), (0.9, 60, 0.4), (1.35, 55, 1.4)):
+        put(x, horn([m, m - 12], dur, 0.4), at, 0.5)
+    put(x, boom(1.2, 70, 35, 0.3, 1.8), 1.35, 0.7)
+    put(x, body(49, lin(1.6, (0, 0), (0.1, 1), (1.6, 0))), 1.35, 0.4)
+    put(x, std1(lp(noise(r, 1.6, 2.0), 120)) * lin(1.6, (0, 0), (0.2, 1), (1.6, 0)), 1.35, 0.4)
+    x = sweep(x, "lp", expo(len(x) / SR, (0, 4000), (1.5, 2500), (d, 300), (len(x) / SR, 300)), 0.7)
+    return room(r, x, "castle", 0.35)
+
+
+@sfx()
+def secret_found(r, d):
+    x = np.zeros(n(d + 1.2))
+    for i, m in enumerate((79, 83, 86, 90, 91, 95)):
+        put(x, tone(hz(m), 1.2, 0.5, GLOCK), i * 0.09, 0.5)
+    for m in (79, 86, 91):
+        put(x, tone(hz(m), 1.8, 1.0, CHIME, attack=0.01), 0.6, 0.3)
+    put(x, sparkles(r, 1.2, lin(1.2, (0, 10), (0.6, 60), (1.2, 0)), 3000, 9000, rise=0.5), 0.2, 0.25)
+    put(x, body(98, lin(1.8, (0, 0), (0.1, 1), (1.8, 0))), 0.6, 0.25)
+    return room(r, x, "hall", 0.3)
+
+
+@sfx()
+def level_up(r, d):
+    x = np.zeros(n(d + 1.2))
+    k = 0.6
+    put(x, whoosh(r, k, expo(k, (0, 300), (k, 3000)), lin(k, (0, 0), (k, 1)), q=1.5), 0, 0.4)
+    put(x, osc(expo(k, (0, 220), (k, 880))) * lin(k, (0, 0), (k, 1)), 0, 0.12)
+    for i, m in enumerate((60, 64, 67, 72)):
+        put(x, tone(hz(m + 12), 0.8, 0.3, CHIME), 0.1 + i * 0.1, 0.35)
+    put(x, horn([48, 60, 64, 67, 72], 0.9), 0.62, 0.55)
+    put(x, drum(r, 95, 70, 0.4), 0.62, 0.7)
+    put(x, body(65.4, lin(1.2, (0, 0), (0.03, 1), (1.2, 0))), 0.62, 0.35)
+    put(x, sparkles(r, 1.4, lin(1.4, (0, 60), (1.4, 0)), 3000, 9000, rise=0.5), 0.6, 0.25)
+    return room(r, x, "hall", 0.3)
+
+
+@sfx()
+def chapter_title(r, d):
+    x = np.zeros(n(d + 1.5))
+    hit = 0.8
+    put(x, reverse_crash(r, hit), 0, 0.7)
+    put(x, big_hit(r), hit, 0.8)
+    for m in (62, 69, 74, 78):
+        put(x, tone(hz(m), 2.5, 1.2, CHIME, attack=0.005), hit, 0.25)
+    k = d - hit
+    put(x, choir(r, [50, 57, 62, 66], k) * lin(k, (0, 0), (0.3, 1), (k, 0)), hit, 0.25)
+    put(x, sparkles(r, k, lin(k, (0, 50), (k, 0)), 3000, 9000), hit, 0.2)
+    return room(r, x, "castle", 0.45)
 
 
 # --------------------------------------------------------------------------- rendering
@@ -1123,15 +1723,17 @@ def render(sid, duration=None):
         pre, xfade = 1.0, min(1.0, loop / 4)
         out = recipe["fn"](r, pre + loop + xfade, loop)
         x, periodic = out if isinstance(out, tuple) else (out, None)
-        x = hp(x, 25)[n(pre):]
+        x = master(hp(x, 25))[n(pre):]
         body, fold = x[: n(loop)].copy(), x[n(loop): n(loop) + n(xfade)]
         w = np.linspace(0, np.pi / 2, len(fold))
         body[: len(fold)] = body[: len(fold)] * np.sin(w) + fold * np.cos(w)
         if periodic is not None:
-            body += fit(periodic, len(body))
+            cycle = fit(periodic, len(body))
+            body_ = master(np.tile(cycle, 3))[len(cycle): 2 * len(cycle)]
+            body += body_
         x = body
     else:
-        x = hp(fit(recipe["fn"](r, duration), n(duration)), 25)
+        x = master(hp(fit(recipe["fn"](r, duration), n(duration)), 25))
         x[: n(0.001)] *= np.linspace(0, 1, n(0.001))
         fade = n(min(0.06, duration * 0.1))
         x[-fade:] *= np.linspace(1, 0, fade) ** 2

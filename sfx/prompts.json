@@ -295,6 +295,185 @@
           "duration": 0.5
         }
       ]
+    },
+    {
+      "id": "cinematic",
+      "label": "🎬 Filmische effecten",
+      "sounds": [
+        {
+          "id": "cine_braam",
+          "prompt": "Massive cinematic braam: huge distorted low brass blast with a deep sub rumble, epic movie trailer",
+          "duration": 4
+        },
+        {
+          "id": "cine_hit",
+          "prompt": "Epic cinematic impact: enormous boom with a metallic clang and a long echoing tail, movie trailer",
+          "duration": 3
+        },
+        {
+          "id": "cine_sub_drop",
+          "prompt": "Deep cinematic sub drop: heavy low boom sliding down in pitch into a rumble",
+          "duration": 3
+        },
+        {
+          "id": "cine_riser",
+          "prompt": "Cinematic tension riser: rising whoosh with swelling strings and noise building to a climax",
+          "duration": 4
+        },
+        {
+          "id": "cine_build_hit",
+          "prompt": "Trailer build-up: rising tension riser that slams into a huge cinematic impact",
+          "duration": 5
+        },
+        {
+          "id": "cine_reverse_swell",
+          "prompt": "Reverse cymbal and reverb swell sucking in and stopping abruptly",
+          "duration": 2
+        },
+        {
+          "id": "cine_whoosh_by",
+          "prompt": "Huge cinematic whoosh of something massive flying past the camera, deep and fast",
+          "duration": 2
+        },
+        {
+          "id": "cine_slowmo",
+          "prompt": "Slow motion time effect: battle sounds slowing down and dropping in pitch, deep muffled whoosh",
+          "duration": 2.5
+        },
+        {
+          "id": "cine_shellshock",
+          "prompt": "Shell shock: muffled explosion aftermath with a high ringing in the ears and a slow heartbeat",
+          "duration": 4
+        },
+        {
+          "id": "cine_war_drums",
+          "prompt": "Epic war drums: powerful taiko hits echoing in a huge hall",
+          "duration": 4
+        },
+        {
+          "id": "cine_horror_stinger",
+          "prompt": "Horror stinger: sudden dissonant screeching strings with a deep low hit",
+          "duration": 2
+        },
+        {
+          "id": "cine_heartbeat_loop",
+          "prompt": "Slow tense heartbeat pulse with a low ominous drone",
+          "loop": true
+        },
+        {
+          "id": "cine_clock_loop",
+          "prompt": "Ticking clock with a low suspenseful string drone, tension",
+          "loop": true
+        }
+      ]
+    },
+    {
+      "id": "ambience",
+      "label": "🌙 Sfeer",
+      "sounds": [
+        {
+          "id": "amb_castle_hall",
+          "prompt": "Vast empty castle hall: distant wind, faint echoes and a low room tone",
+          "loop": true
+        },
+        {
+          "id": "amb_storm",
+          "prompt": "Heavy rain against castle windows with distant rolling thunder",
+          "loop": true
+        },
+        {
+          "id": "amb_forest_night",
+          "prompt": "Dark enchanted forest at night: wind in the trees, crickets and a distant owl",
+          "loop": true
+        },
+        {
+          "id": "amb_dungeon",
+          "prompt": "Underground dungeon: echoing water drips, a low drone and distant rattling chains",
+          "loop": true
+        },
+        {
+          "id": "amb_fireplace",
+          "prompt": "Crackling fireplace in a cozy common room, warm and calm",
+          "loop": true
+        },
+        {
+          "id": "amb_magic",
+          "prompt": "Mysterious magical ambience: warm evolving pad with soft shimmering bells",
+          "loop": true
+        }
+      ]
+    },
+    {
+      "id": "creatures",
+      "label": "🐉 Wezens",
+      "sounds": [
+        {
+          "id": "dragon_roar",
+          "prompt": "Huge dragon roar: deep growling beast roar with a rumbling breath, echoing",
+          "duration": 3
+        },
+        {
+          "id": "dragon_wings",
+          "prompt": "Giant dragon wings flapping: three heavy leathery wing beats pushing air",
+          "duration": 2
+        },
+        {
+          "id": "ghost_wail",
+          "prompt": "Ghost wail: eerie hollow moaning voice drifting through a castle with echoes",
+          "duration": 3
+        },
+        {
+          "id": "owl_hoot",
+          "prompt": "Owl hooting at night in the distance, soft and hollow",
+          "duration": 2
+        },
+        {
+          "id": "wolf_howl",
+          "prompt": "Lone wolf howling at the moon, echoing across the mountains",
+          "duration": 4
+        },
+        {
+          "id": "bats_swarm",
+          "prompt": "Swarm of bats flying past: fluttering wings and high squeaks",
+          "duration": 3
+        }
+      ]
+    },
+    {
+      "id": "moments",
+      "label": "🏆 Spelmomenten",
+      "sounds": [
+        {
+          "id": "boss_appears",
+          "prompt": "Boss appears: ominous low brass and a dark choir hit with pounding drums, cinematic",
+          "duration": 4
+        },
+        {
+          "id": "victory_fanfare",
+          "prompt": "Victory fanfare: triumphant orchestral brass with timpani and a cymbal crash",
+          "duration": 4
+        },
+        {
+          "id": "game_over",
+          "prompt": "Game over: slow descending dark brass notes fading into a low rumble",
+          "duration": 3
+        },
+        {
+          "id": "secret_found",
+          "prompt": "Secret discovered: magical rising bell arpeggio with a shimmer",
+          "duration": 2
+        },
+        {
+          "id": "level_up",
+          "prompt": "Level up: rising magical sweep ending in a bright brass chord and sparkles",
+          "duration": 2.5
+        },
+        {
+          "id": "chapter_title",
+          "prompt": "Cinematic title reveal: deep reverse whoosh into a big boom with a shimmering magical tail",
+          "duration": 3
+        }
+      ]
     }
   ]
 }
